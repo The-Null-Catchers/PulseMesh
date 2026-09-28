@@ -1,0 +1,68 @@
+import { randomUUID } from 'node:crypto';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
+import { ZodError } from 'zod';
+import { config } from './config.js';
+import { AppError } from './errors.js';
+import { authenticationPlugin } from './auth/plugin.js';
+import { authRoutes } from './auth/routes.js';
+import { workspaceRoutes } from './workspaces/routes.js';
+import { channelRoutes } from './channels/routes.js';
+import { messageRoutes } from './messages/routes.js';
+import { healthRoutes } from './health/routes.js';
+import { redis } from './realtime/bus.js';
+import { realtimeTicketRoutes } from './realtime/tickets.js';
+import { registerRealtimeGateway } from './realtime/gateway.js';
+
+export async function buildApp() {
+  const app = Fastify({
+    logger: { level: config.NODE_ENV === 'production' ? 'info' : 'debug' },
+    requestIdHeader: 'x-request-id',
+    genReqId: () => randomUUID()
+  });
+
+  await app.register(cors, {
+    origin: config.WEB_ORIGIN,
+    credentials: true
+  });
+
+  await app.register(rateLimit, {
+    global: true,
+    max: 300,
+    timeWindow: '1 minute',
+    redis
+  });
+
+  app.setErrorHandler((error, request, reply) => {
+    const appError = error instanceof AppError ? error : null;
+    const statusCode = error instanceof ZodError ? 400 : appError?.statusCode ?? 500;
+    const code = error instanceof ZodError ? 'VALIDATION_ERROR' : appError?.code ?? 'INTERNAL_ERROR';
+
+    request.log.error({ err: error, code }, 'request failed');
+
+    return reply.code(statusCode).send({
+      error: {
+        code,
+        message: statusCode >= 500 ? 'An unexpected error occurred' : error.message,
+        requestId: request.id,
+        ...(error instanceof ZodError
+          ? { details: error.issues.map((issue) => ({ path: issue.path, message: issue.message })) }
+          : appError?.details
+            ? { details: appError.details }
+            : {})
+      }
+    });
+  });
+
+  await authenticationPlugin(app);
+  await authRoutes(app);
+  await workspaceRoutes(app);
+  await channelRoutes(app);
+  await messageRoutes(app);
+  await realtimeTicketRoutes(app);
+  await registerRealtimeGateway(app);
+  await healthRoutes(app);
+
+  return app;
+}
