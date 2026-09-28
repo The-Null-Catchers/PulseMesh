@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@10.17.1",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
@@ -12,6 +14,13 @@
     "test": "turbo test",
     "format:check": "prettier --check .",
     "format": "prettier --write ."
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "argon2",
+      "esbuild",
+      "msgpackr-extract"
+    ]
   },
   "devDependencies": {
     "prettier": "^3.6.2",
