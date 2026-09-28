@@ -39,18 +39,28 @@ export async function buildApp() {
 
   app.setErrorHandler((error, request, reply) => {
     const appError = error instanceof AppError ? error : null;
-    const statusCode = error instanceof ZodError ? 400 : appError?.statusCode ?? 500;
-    const code = error instanceof ZodError ? 'VALIDATION_ERROR' : appError?.code ?? 'INTERNAL_ERROR';
+    const statusCode =
+      error instanceof ZodError ? 400 : (appError?.statusCode ?? 500);
+    const code =
+      error instanceof ZodError
+        ? 'VALIDATION_ERROR'
+        : (appError?.code ?? 'INTERNAL_ERROR');
+    const message = error instanceof Error ? error.message : 'Request failed';
 
     request.log.error({ err: error, code }, 'request failed');
 
     return reply.code(statusCode).send({
       error: {
         code,
-        message: statusCode >= 500 ? 'An unexpected error occurred' : error.message,
+        message: statusCode >= 500 ? 'An unexpected error occurred' : message,
         requestId: request.id,
         ...(error instanceof ZodError
-          ? { details: error.issues.map((issue) => ({ path: issue.path, message: issue.message })) }
+          ? {
+              details: error.issues.map((issue) => ({
+                path: issue.path,
+                message: issue.message
+              }))
+            }
           : appError?.details
             ? { details: appError.details }
             : {})
