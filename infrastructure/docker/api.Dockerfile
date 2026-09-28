@@ -8,7 +8,9 @@ COPY packages/realtime/package.json packages/realtime/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN pnpm install --no-frozen-lockfile
 COPY apps/api apps/api
-COPY packages packages
-RUN pnpm --filter @pulsemesh/api build
+COPY packages/types packages/types
+COPY packages/realtime packages/realtime
+COPY packages/shared packages/shared
+RUN pnpm turbo build --filter=@pulsemesh/api...
 EXPOSE 4000
 CMD ["pnpm", "--filter", "@pulsemesh/api", "start"]

@@ -1,13 +1,10 @@
 {
-  "name": "@pulsemesh/sdk",
+  "name": "@pulsemesh/ui",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "dependencies": {
-    "@pulsemesh/types": "workspace:*"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

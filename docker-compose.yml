@@ -40,6 +40,18 @@ services:
       - "9000:9000"
       - "9001:9001"
 
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+        mc mb --ignore-existing local/pulsemesh;
+        exit 0
+
   coturn:
     image: coturn/coturn:latest
     command:
@@ -69,7 +81,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-      minio: { condition: service_started }
+      minio-init: { condition: service_completed_successfully }
     ports:
       - "4000:4000"
 
