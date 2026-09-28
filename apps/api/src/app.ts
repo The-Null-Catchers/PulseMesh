@@ -10,6 +10,12 @@ import { authRoutes } from './auth/routes.js';
 import { workspaceRoutes } from './workspaces/routes.js';
 import { channelRoutes } from './channels/routes.js';
 import { messageRoutes } from './messages/routes.js';
+import { messageMutationRoutes } from './messages/mutations.js';
+import { conversationRoutes } from './conversations/routes.js';
+import { readStateRoutes } from './read-states/routes.js';
+import { searchRoutes } from './search/routes.js';
+import { fileRoutes } from './files/routes.js';
+import { notificationRoutes } from './notifications/routes.js';
 import { healthRoutes } from './health/routes.js';
 import { redis } from './realtime/bus.js';
 import { realtimeTicketRoutes } from './realtime/tickets.js';
@@ -22,10 +28,7 @@ export async function buildApp() {
     genReqId: () => randomUUID()
   });
 
-  await app.register(cors, {
-    origin: config.WEB_ORIGIN,
-    credentials: true
-  });
+  await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true });
 
   await app.register(rateLimit, {
     global: true,
@@ -60,6 +63,12 @@ export async function buildApp() {
   await workspaceRoutes(app);
   await channelRoutes(app);
   await messageRoutes(app);
+  await messageMutationRoutes(app);
+  await conversationRoutes(app);
+  await readStateRoutes(app);
+  await searchRoutes(app);
+  await fileRoutes(app);
+  await notificationRoutes(app);
   await realtimeTicketRoutes(app);
   await registerRealtimeGateway(app);
   await healthRoutes(app);
