@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 import nodemailer from 'nodemailer';
 
 const redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
@@ -36,12 +36,14 @@ const worker = new Worker(
       encodeURIComponent(data.token);
 
     if (!transport) {
-      console.info(JSON.stringify({
-        event: 'email.dev',
-        to: data.email,
-        subject,
-        link
-      }));
+      console.info(
+        JSON.stringify({
+          event: 'email.dev',
+          to: data.email,
+          subject,
+          link
+        })
+      );
       return;
     }
 
@@ -59,16 +61,20 @@ const worker = new Worker(
 );
 
 worker.on('completed', (job) => {
-  console.info(JSON.stringify({ event: 'job.completed', jobId: job.id, name: job.name }));
+  console.info(
+    JSON.stringify({ event: 'job.completed', jobId: job.id, name: job.name })
+  );
 });
 
 worker.on('failed', (job, error) => {
-  console.error(JSON.stringify({
-    event: 'job.failed',
-    jobId: job?.id,
-    name: job?.name,
-    error: error.message
-  }));
+  console.error(
+    JSON.stringify({
+      event: 'job.failed',
+      jobId: job?.id,
+      name: job?.name,
+      error: error.message
+    })
+  );
 });
 
 console.info(JSON.stringify({ event: 'worker.ready', queue: 'notifications' }));
