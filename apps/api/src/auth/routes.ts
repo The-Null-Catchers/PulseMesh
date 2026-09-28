@@ -37,7 +37,7 @@ async function issueSession(
     browser?: string | undefined;
     os?: string | undefined;
   },
-  request: { ip: string; headers: { 'user-agent'?: string } }
+  request: { ip: string; headers: { 'user-agent'?: string | undefined } }
 ) {
   return withTransaction(async (client) => {
     const result = await client.query<{ id: string; family_id: string }>(
