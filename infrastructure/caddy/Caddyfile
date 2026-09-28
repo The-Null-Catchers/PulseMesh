@@ -1,0 +1,9 @@
+{$PULSEMESH_WEB_DOMAIN:pulsemesh.example.com} {
+  encode zstd gzip
+  reverse_proxy web:3000
+}
+
+{$PULSEMESH_API_DOMAIN:api.pulsemesh.example.com} {
+  encode zstd gzip
+  reverse_proxy api:4000
+}
