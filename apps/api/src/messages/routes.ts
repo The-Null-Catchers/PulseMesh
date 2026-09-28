@@ -7,6 +7,7 @@ import { pool } from '../db/index.js';
 import { canAccessChannel, canSendToChannel } from '../authorization/service.js';
 import { AppError } from '../errors.js';
 import { publishRealtime } from '../realtime/bus.js';
+import { createMentionNotifications } from './mentions.js';
 
 const sendSchema = z.object({
   clientMessageId: z.string().uuid().optional(),
@@ -26,12 +27,12 @@ export async function messageRoutes(app: FastifyInstance): Promise<void> {
       throw new AppError(403, 'CHANNEL_ACCESS_DENIED', 'Channel access denied');
     }
 
-    const values: unknown[] = [params.channelId];
+    const values: unknown[] = [params.channelId, userId];
     let cursorClause = '';
     if (query.cursor) {
       const cursor = decodeCursor<{ createdAt: string; id: string }>(query.cursor);
       values.push(cursor.createdAt, cursor.id);
-      cursorClause = 'AND (m.created_at,m.id) < ($2::timestamptz,$3::uuid)';
+      cursorClause = 'AND (m.created_at,m.id) < ($3::timestamptz,$4::uuid)';
     }
     values.push(query.limit + 1);
 
@@ -40,7 +41,7 @@ export async function messageRoutes(app: FastifyInstance): Promise<void> {
       client_message_id: string | null; reply_to_message_id: string | null;
       sender_id: string; username: string; display_name: string; avatar_url: string | null;
     }>(
-      'SELECT m.id,m.body,m.created_at,m.edited_at,m.client_message_id,m.reply_to_message_id,u.id AS sender_id,u.username,u.display_name,u.avatar_url FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.channel_id=$1 AND m.deleted_at IS NULL ' +
+      'SELECT m.id,m.body,m.created_at,m.edited_at,m.client_message_id,m.reply_to_message_id,u.id AS sender_id,u.username,u.display_name,u.avatar_url FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.channel_id=$1 AND m.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM message_hidden_users h WHERE h.message_id=m.id AND h.user_id=$2) ' +
       cursorClause +
       ' ORDER BY m.created_at DESC,m.id DESC LIMIT $' + values.length,
       values
@@ -91,6 +92,13 @@ export async function messageRoutes(app: FastifyInstance): Promise<void> {
     );
     const message = result.rows[0];
     if (!message) throw new Error('Message creation failed');
+
+    await createMentionNotifications({
+      messageId: message.id,
+      senderUserId: userId,
+      body: body.body,
+      channelId: params.channelId
+    });
 
     const event: RealtimeEvent = {
       id: randomUUID(),
