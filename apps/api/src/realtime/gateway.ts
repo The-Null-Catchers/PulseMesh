@@ -85,10 +85,10 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
       occurredAt: new Date().toISOString()
     }));
 
-    socket.on('message', async (raw) => {
+    socket.on('message', async (raw: unknown) => {
       let value: unknown;
       try {
-        value = JSON.parse(raw.toString());
+        value = JSON.parse(typeof raw === 'string' ? raw : String(raw));
       } catch {
         return;
       }
