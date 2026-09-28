@@ -12,10 +12,10 @@ final router = GoRouter(
     ShellRoute(
       builder: (context, state, child) => AppShell(child: child),
       routes: [
-        GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
-        GoRoute(path: '/messages', builder: (_, __) => const PlaceholderScreen(title: 'Messages')),
-        GoRoute(path: '/activity', builder: (_, __) => const PlaceholderScreen(title: 'Activity')),
-        GoRoute(path: '/profile', builder: (_, __) => const PlaceholderScreen(title: 'Profile')),
+        GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
+        GoRoute(path: '/messages', builder: (_, _) => const PlaceholderScreen(title: 'Messages')),
+        GoRoute(path: '/activity', builder: (_, _) => const PlaceholderScreen(title: 'Activity')),
+        GoRoute(path: '/profile', builder: (_, _) => const PlaceholderScreen(title: 'Profile')),
       ],
     ),
   ],
