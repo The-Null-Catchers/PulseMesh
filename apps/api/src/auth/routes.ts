@@ -32,7 +32,11 @@ const loginSchema = credentialsSchema.extend({
 
 async function issueSession(
   userId: string,
-  meta: { device?: string; browser?: string; os?: string },
+  meta: {
+    device?: string | undefined;
+    browser?: string | undefined;
+    os?: string | undefined;
+  },
   request: { ip: string; headers: { 'user-agent'?: string } }
 ) {
   return withTransaction(async (client) => {
