@@ -79,19 +79,37 @@ export async function messageMutationRoutes(app: FastifyInstance): Promise<void>
 
   app.delete('/messages/:messageId', { preHandler: app.authenticate }, async (request) => {
     const params = z.object({ messageId: z.string().uuid() }).parse(request.params);
+    const query = z.object({
+      scope: z.enum(['self', 'everyone']).default('everyone')
+    }).parse(request.query);
     const userId = request.auth?.userId;
     if (!userId) throw new Error('Missing user');
+
     const existing = await messageAndRoom(params.messageId);
     if (!existing) throw new AppError(404, 'MESSAGE_NOT_FOUND', 'Message not found');
     await assertMessageAccess(userId, existing);
+
+    if (query.scope === 'self') {
+      await pool.query(
+        'INSERT INTO message_hidden_users (message_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+        [existing.id, userId]
+      );
+      return { ok: true, scope: 'self' };
+    }
+
     if (existing.sender_user_id !== userId) {
-      throw new AppError(403, 'MESSAGE_DELETE_DENIED', 'Only the sender can delete this message');
+      throw new AppError(
+        403,
+        'MESSAGE_DELETE_DENIED',
+        'Only the sender can delete this message for everyone'
+      );
     }
 
     await pool.query(
-      'UPDATE messages SET deleted_at=now(),delete_scope=\'everyone\',body=\'\' WHERE id=$1',
+      "UPDATE messages SET deleted_at=now(),delete_scope='everyone',body='' WHERE id=$1",
       [existing.id]
     );
+
     const event: RealtimeEvent = {
       id: randomUUID(),
       type: 'message.deleted',
@@ -100,7 +118,7 @@ export async function messageMutationRoutes(app: FastifyInstance): Promise<void>
       payload: { id: existing.id }
     };
     await publishRealtime(event);
-    return { ok: true };
+    return { ok: true, scope: 'everyone' };
   });
 
   app.put('/messages/:messageId/reactions/:emoji', { preHandler: app.authenticate }, async (request) => {
