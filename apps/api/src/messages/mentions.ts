@@ -1,5 +1,3 @@
-import { pool } from '../db/index.js';
-
 export interface ParsedMentions {
   usernames: string[];
   broadcast: boolean;
@@ -31,6 +29,7 @@ export async function createMentionNotifications(input: {
   channelId?: string;
   conversationId?: string;
 }): Promise<void> {
+  const { pool } = await import('../db/index.js');
   const parsed = parseMentions(input.body);
   if (!parsed.broadcast && parsed.usernames.length === 0) return;
 
