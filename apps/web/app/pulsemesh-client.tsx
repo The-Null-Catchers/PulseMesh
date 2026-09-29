@@ -59,7 +59,11 @@ import { useNotifications } from "../hooks/use-notifications";
 import { usePulseMeshCall } from "../hooks/use-pulsemesh-call";
 import { usePulseMeshRealtime } from "../hooks/use-pulsemesh-realtime";
 import { request, setAccessTokenRefresher } from "../lib/api";
-import { conversationLabel, initials } from "../lib/display";
+import {
+  conversationLabel,
+  initials,
+  typingIndicatorText,
+} from "../lib/display";
 import { tokenExpiresAt, tokenSubject } from "../lib/session";
 import type {
   Channel,
@@ -289,11 +293,12 @@ function WorkspaceApp({
       ),
   });
 
-  const { socketState, typing } = usePulseMeshRealtime({
+  const { socketState, typingUserIds } = usePulseMeshRealtime({
     token,
     activeRoom,
     activeMessageKey,
     workspaceId,
+    currentUserId,
     socketRef,
     activeCallRef,
     activeCallRoomRef,
@@ -397,6 +402,20 @@ function WorkspaceApp({
     () => [...(messages.data?.items ?? [])].reverse(),
     [messages.data],
   );
+  const typingNames = typingUserIds
+    .map(
+      (userId) =>
+        currentConversation?.members.find((member) => member.id === userId)
+          ?.displayName ??
+        presence.data?.items.find((member) => member.userId === userId)
+          ?.displayName,
+    )
+    .filter((name): name is string => Boolean(name));
+  const typingText = typingIndicatorText(
+    typingNames,
+    typingUserIds.length,
+  );
+
   function submitMessage(event: FormEvent) {
     event.preventDefault();
     const body = composer.trim();
@@ -1160,7 +1179,7 @@ function WorkspaceApp({
           <div className="px-4 pb-4 md:px-6 md:pb-5">
             <div className="mx-auto max-w-3xl">
               <div className="mb-1 min-h-5 px-2 text-xs text-slate-600">
-                {typing ? "Someone is typing…" : ""}
+                {typingText}
               </div>
               {isEncryptedConversation && (
                 <div className="mb-2 flex items-start gap-2 rounded-2xl border border-[#68e0cf]/10 bg-[#68e0cf]/[0.04] px-4 py-3 text-xs leading-5 text-slate-400">
