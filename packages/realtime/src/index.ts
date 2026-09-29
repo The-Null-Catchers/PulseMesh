@@ -24,7 +24,11 @@ export const realtimeEventSchema = z.discriminatedUnion('type', [
   z.object({
     ...base,
     type: z.literal('message.updated'),
-    payload: z.object({ id: z.string().uuid(), body: z.string(), editedAt: z.string() })
+    payload: z.object({
+      id: z.string().uuid(),
+      body: z.string(),
+      editedAt: z.string()
+    })
   }),
   z.object({
     ...base,
@@ -63,12 +67,18 @@ export const realtimeEventSchema = z.discriminatedUnion('type', [
   z.object({
     ...base,
     type: z.enum(['channel.created', 'channel.updated']),
-    payload: z.object({ channelId: z.string().uuid(), workspaceId: z.string().uuid() })
+    payload: z.object({
+      channelId: z.string().uuid(),
+      workspaceId: z.string().uuid()
+    })
   }),
   z.object({
     ...base,
     type: z.enum(['member.joined', 'member.left']),
-    payload: z.object({ workspaceId: z.string().uuid(), userId: z.string().uuid() })
+    payload: z.object({
+      workspaceId: z.string().uuid(),
+      userId: z.string().uuid()
+    })
   }),
   z.object({
     ...base,
@@ -95,7 +105,9 @@ export const realtimeControlMessageSchema = z.discriminatedUnion('type', [
   })
 ]);
 
-export type RealtimeControlMessage = z.infer<typeof realtimeControlMessageSchema>;
+export type RealtimeControlMessage = z.infer<
+  typeof realtimeControlMessageSchema
+>;
 
 export const clientRealtimeMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('room.subscribe'), room: z.string().min(1) }),
@@ -106,7 +118,16 @@ export const clientRealtimeMessageSchema = z.discriminatedUnion('type', [
     lastSequence: z.number().int().nonnegative(),
     rooms: z.array(z.string().min(1)).max(100)
   }),
-  z.object({ type: z.enum(['typing.started', 'typing.stopped']), room: z.string().min(1) })
+  z.object({
+    type: z.literal('view.active'),
+    room: z.string().min(1).nullable()
+  }),
+  z.object({
+    type: z.enum(['typing.started', 'typing.stopped']),
+    room: z.string().min(1)
+  })
 ]);
 
-export type ClientRealtimeMessage = z.infer<typeof clientRealtimeMessageSchema>;
+export type ClientRealtimeMessage = z.infer<
+  typeof clientRealtimeMessageSchema
+>;

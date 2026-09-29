@@ -107,3 +107,18 @@ export function mimeTypesCompatible(
   if (declared === detected) return true;
   return MIME_ALIASES.get(declared)?.has(detected) ?? false;
 }
+
+export const ACTIVE_VIEW_TTL_MS = 90_000;
+
+export function activeViewRedisKey(userId: string): string {
+  return 'active-view:user:' + userId;
+}
+
+export function activeViewMember(sessionId: string, room: string): string {
+  return sessionId + '\t' + room;
+}
+
+export function roomFromActiveViewMember(member: string): string | null {
+  const index = member.indexOf('\t');
+  return index === -1 ? null : member.slice(index + 1);
+}
