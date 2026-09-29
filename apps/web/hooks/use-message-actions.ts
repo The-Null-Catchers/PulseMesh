@@ -77,22 +77,30 @@ export function useMessageActions({
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<Page<Message>>(key);
 
+      const existing = previous?.items.find(
+        (item) => item.clientMessageId === clientMessageId,
+      );
+      const uploadAttachments = uploads
+        .filter((item) => item.fileId && attachmentIds.includes(item.fileId))
+        .map((item) => ({
+          id: item.fileId!,
+          name: item.name,
+          mimeType: item.file.type || "application/octet-stream",
+          sizeBytes: item.file.size,
+        }));
+
       const optimistic: Message = {
         id: clientMessageId,
         clientMessageId,
         channelId,
         conversationId,
         body,
-        createdAt: new Date().toISOString(),
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
         editedAt: null,
-        attachments: uploads
-          .filter((item) => item.fileId && attachmentIds.includes(item.fileId))
-          .map((item) => ({
-            id: item.fileId!,
-            name: item.name,
-            mimeType: item.file.type || "application/octet-stream",
-            sizeBytes: item.file.size,
-          })),
+        attachments:
+          uploadAttachments.length > 0
+            ? uploadAttachments
+            : (existing?.attachments ?? []),
         optimistic: true,
         sender: {
           id: "self",
@@ -109,19 +117,28 @@ export function useMessageActions({
 
       return { key, clientMessageId };
     },
-    onError: (_error, variables, context) => {
-      if (!context?.key) return;
-
-      queryClient.setQueryData<Page<Message> | undefined>(
-        context.key,
-        (current) =>
-          markOptimisticMessageFailed(current, variables.clientMessageId),
+    onError: (error, variables, context) => {
+      if (context?.key) {
+        queryClient.setQueryData<Page<Message> | undefined>(
+          context.key,
+          (current) =>
+            markOptimisticMessageFailed(current, variables.clientMessageId),
+        );
+      }
+      setUploads((current) =>
+        current.filter((item) => item.status !== "ready"),
+      );
+      setMessageActionError(
+        error instanceof Error
+          ? error.message
+          : "Message failed to send. Retry from the message.",
       );
     },
     onSuccess: () => {
       setUploads((current) =>
         current.filter((item) => item.status !== "ready"),
       );
+      setMessageActionError(null);
       invalidateActiveMessages();
     },
   });
