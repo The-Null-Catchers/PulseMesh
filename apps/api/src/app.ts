@@ -30,6 +30,7 @@ import { moderationRoutes } from './moderation/routes.js';
 import { auditRoutes } from './audit/routes.js';
 import { observabilityRoutes } from './observability/routes.js';
 import { registerHttpMetrics } from './observability/metrics.js';
+import { e2eeRoutes } from './e2ee/routes.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -121,6 +122,7 @@ export async function buildApp() {
   await callRoutes(app);
   await moderationRoutes(app);
   await auditRoutes(app);
+  await e2eeRoutes(app);
   await realtimeTicketRoutes(app);
   await registerRealtimeGateway(app);
   await healthRoutes(app);
