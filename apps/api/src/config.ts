@@ -19,7 +19,16 @@ const schema = z.object({
     .string()
     .default('true')
     .transform((value) => value === 'true'),
-  WEB_PUSH_PUBLIC_KEY: z.string().default('')
+  WEB_PUSH_PUBLIC_KEY: z.string().default(''),
+  TURN_URLS: z
+    .string()
+    .default(
+      'stun:localhost:3478,turn:localhost:3478?transport=udp'
+    ),
+  TURN_SHARED_SECRET: z
+    .string()
+    .min(16)
+    .default('change-this-turn-shared-secret')
 });
 
 export const config = schema.parse(process.env);

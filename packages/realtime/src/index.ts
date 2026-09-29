@@ -7,6 +7,40 @@ const base = {
   sequence: z.number().int().nonnegative().optional()
 };
 
+export const webRtcSignalSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('offer'),
+    sdp: z.string().min(1).max(262_144)
+  }),
+  z.object({
+    kind: z.literal('answer'),
+    sdp: z.string().min(1).max(262_144)
+  }),
+  z.object({
+    kind: z.literal('ice'),
+    candidate: z.string().max(8_192),
+    sdpMid: z.string().max(256).nullable(),
+    sdpMLineIndex: z.number().int().nonnegative().nullable(),
+    usernameFragment: z.string().max(256).nullable().optional()
+  })
+]);
+
+export type WebRtcSignal = z.infer<typeof webRtcSignalSchema>;
+
+const callParticipantSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  username: z.string(),
+  displayName: z.string(),
+  avatarUrl: z.string().nullable(),
+  muted: z.boolean(),
+  deafened: z.boolean(),
+  cameraEnabled: z.boolean(),
+  screenSharing: z.boolean(),
+  connectionState: z.string(),
+  joinedAt: z.string()
+});
+
 export const realtimeEventSchema = z.discriminatedUnion('type', [
   z.object({
     ...base,
@@ -88,8 +122,55 @@ export const realtimeEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     ...base,
-    type: z.enum(['call.started', 'call.ended']),
-    payload: z.object({ callId: z.string().uuid() })
+    type: z.literal('call.started'),
+    payload: z.object({
+      callId: z.string().uuid(),
+      kind: z.enum(['voice', 'video']),
+      channelId: z.string().uuid().nullable(),
+      conversationId: z.string().uuid().nullable(),
+      startedAt: z.string()
+    })
+  }),
+  z.object({
+    ...base,
+    type: z.literal('call.ended'),
+    payload: z.object({
+      callId: z.string().uuid(),
+      endedAt: z.string()
+    })
+  }),
+  z.object({
+    ...base,
+    type: z.enum([
+      'call.participant.joined',
+      'call.participant.left',
+      'call.participant.updated'
+    ]),
+    payload: z.object({
+      callId: z.string().uuid(),
+      participant: callParticipantSchema
+    })
+  }),
+  z.object({
+    ...base,
+    type: z.literal('call.signal'),
+    payload: z.object({
+      callId: z.string().uuid(),
+      fromParticipantId: z.string().uuid(),
+      fromUserId: z.string().uuid(),
+      signal: webRtcSignalSchema
+    })
+  }),
+  z.object({
+    ...base,
+    type: z.literal('call.speaking'),
+    payload: z.object({
+      callId: z.string().uuid(),
+      participantId: z.string().uuid(),
+      userId: z.string().uuid(),
+      speaking: z.boolean(),
+      expiresAt: z.string().nullable()
+    })
   })
 ]);
 
@@ -144,6 +225,17 @@ export const clientRealtimeMessageSchema = z.discriminatedUnion(
     z.object({
       type: z.enum(['typing.started', 'typing.stopped']),
       room: z.string().min(1)
+    }),
+    z.object({
+      type: z.literal('call.signal'),
+      callId: z.string().uuid(),
+      targetParticipantId: z.string().uuid(),
+      signal: webRtcSignalSchema
+    }),
+    z.object({
+      type: z.literal('call.speaking'),
+      callId: z.string().uuid(),
+      speaking: z.boolean()
     })
   ]
 );
