@@ -69,7 +69,7 @@ async function issueSession(
       familyId: session.family_id
     });
     await client.query('UPDATE sessions SET refresh_token_hash=$1 WHERE id=$2', [
-      sha256(refreshToken),
+      sha256(nextRefreshToken),
       session.id
     ]);
 
@@ -185,7 +185,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const generation = session.generation + 1;
-      const refreshToken = await signRefreshToken({
+      const nextRefreshToken = await signRefreshToken({
         sub: session.user_id,
         sessionId: session.id,
         generation,
@@ -199,7 +199,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         sub: session.user_id,
         sessionId: session.id
       });
-      return { accessToken, refreshToken };
+      return { accessToken, refreshToken: nextRefreshToken };
     });
 
     if (!rotated) {
