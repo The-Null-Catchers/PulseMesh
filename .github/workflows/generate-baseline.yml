@@ -30,33 +30,38 @@ jobs:
           from pathlib import Path
 
           path = Path(".github/workflows/ci.yml")
-          text = path.read_text()
-          text = text.replace(
-              "      - run: pnpm install --no-frozen-lockfile",
-              "      - run: pnpm install --frozen-lockfile",
+          lines = path.read_text().splitlines()
+
+          lines = [
+              line.replace(
+                  "pnpm install --no-frozen-lockfile",
+                  "pnpm install --frozen-lockfile",
+              )
+              for line in lines
+          ]
+
+          start = next(
+              i
+              for i, line in enumerate(lines)
+              if "Check formatting for maintained CI and web test files" in line
           )
-          old = """      - name: Check formatting for maintained CI and web test files
-        run: >-
-          pnpm exec prettier --check
-          .github/workflows/ci.yml
-          apps/web/package.json
-          apps/web/lib/session.ts
-          apps/web/lib/session.test.ts"""
-          text = text.replace(old, "      - run: pnpm format:check")
-          path.write_text(text)
+          end = next(
+              i
+              for i, line in enumerate(lines[start + 1 :], start + 1)
+              if "pnpm typecheck" in line
+          )
+
+          lines[start:end] = ["      - run: pnpm format:check"]
+          path.write_text("\n".join(lines) + "\n")
           PY
       - run: pnpm exec prettier --write .
       - name: Commit canonical baseline
         run: |
-          if git diff --quiet && git diff --cached --quiet && git status --porcelain | grep -qv '^?? pnpm-lock.yaml$'; then
-            echo "Baseline already canonical."
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --cached --quiet; then
-            echo "No baseline changes to commit."
+            echo "Baseline already canonical."
             exit 0
           fi
           git commit -m "chore: establish formatting and lockfile baseline"
