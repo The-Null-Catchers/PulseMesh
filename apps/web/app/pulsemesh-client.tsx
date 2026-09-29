@@ -311,6 +311,7 @@ function WorkspaceApp({
 
   const {
     sendMessage,
+    retryFailedMessage,
     reactionMutation,
     editMessage,
     deleteMessage,
@@ -919,7 +920,10 @@ function WorkspaceApp({
                     <article
                       key={message.id}
                       className={
-                        "group flex gap-3 rounded-2xl px-2 py-1.5 transition hover:bg-white/[0.025] " +
+                        "group flex gap-3 rounded-2xl border px-2 py-1.5 transition hover:bg-white/[0.025] " +
+                        (message.failed
+                          ? "border-rose-400/20 bg-rose-400/[0.035]"
+                          : "border-transparent ") +
                         (message.optimistic ? "opacity-60" : "")
                       }
                     >
@@ -942,7 +946,24 @@ function WorkspaceApp({
                               edited
                             </span>
                           )}
-                          {!message.optimistic && (
+                          {message.failed && (
+                            <span className="text-[10px] font-medium text-rose-300">
+                              failed
+                            </span>
+                          )}
+                          {message.failed && (
+                            <button
+                              type="button"
+                              onClick={() => retryFailedMessage(message)}
+                              disabled={sendMessage.isPending}
+                              className="ml-auto flex items-center gap-1 rounded-lg border border-rose-400/20 bg-rose-400/10 px-2 py-1 text-[10px] font-medium text-rose-200 disabled:opacity-40"
+                              aria-label="Retry failed message"
+                            >
+                              <RotateCcw className="size-3" />
+                              Retry
+                            </button>
+                          )}
+                          {!message.optimistic && !message.failed && (
                             <div className="ml-auto hidden items-center gap-1 group-hover:flex">
                               {!message.encryptedPayload && (
                                 <button
@@ -1075,7 +1096,7 @@ function WorkspaceApp({
                           </div>
                         )}
 
-                        {!message.optimistic && (
+                        {!message.optimistic && !message.failed && (
                           <div className="mt-2 flex flex-wrap items-center gap-1.5">
                             {(message.reactions ?? []).map((reaction) => (
                               <button

@@ -3,6 +3,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dispatch, SetStateAction, useState } from "react";
 import { request } from "../lib/api";
+import {
+  markOptimisticMessageFailed,
+  upsertOptimisticMessage,
+} from "../lib/message-cache";
 import type { Message, Page, UploadItem } from "../lib/types";
 
 export function useMessageActions({
@@ -73,22 +77,30 @@ export function useMessageActions({
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<Page<Message>>(key);
 
+      const existing = previous?.items.find(
+        (item) => item.clientMessageId === clientMessageId,
+      );
+      const uploadAttachments = uploads
+        .filter((item) => item.fileId && attachmentIds.includes(item.fileId))
+        .map((item) => ({
+          id: item.fileId!,
+          name: item.name,
+          mimeType: item.file.type || "application/octet-stream",
+          sizeBytes: item.file.size,
+        }));
+
       const optimistic: Message = {
         id: clientMessageId,
         clientMessageId,
         channelId,
         conversationId,
         body,
-        createdAt: new Date().toISOString(),
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
         editedAt: null,
-        attachments: uploads
-          .filter((item) => item.fileId && attachmentIds.includes(item.fileId))
-          .map((item) => ({
-            id: item.fileId!,
-            name: item.name,
-            mimeType: item.file.type || "application/octet-stream",
-            sizeBytes: item.file.size,
-          })),
+        attachments:
+          uploadAttachments.length > 0
+            ? uploadAttachments
+            : (existing?.attachments ?? []),
         optimistic: true,
         sender: {
           id: "self",
@@ -98,24 +110,37 @@ export function useMessageActions({
         },
       };
 
-      queryClient.setQueryData<Page<Message>>(key, {
-        items: [optimistic, ...(previous?.items ?? [])],
-        nextCursor: previous?.nextCursor ?? null,
-      });
+      queryClient.setQueryData<Page<Message>>(
+        key,
+        upsertOptimisticMessage(previous, optimistic),
+      );
 
-      return { previous, key };
+      return { key, clientMessageId };
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, variables, context) => {
       if (context?.key) {
-        queryClient.setQueryData(context.key, context.previous);
+        queryClient.setQueryData<Page<Message> | undefined>(
+          context.key,
+          (current) =>
+            markOptimisticMessageFailed(current, variables.clientMessageId),
+        );
       }
+      setUploads((current) =>
+        current.filter((item) => item.status !== "ready"),
+      );
+      setMessageActionError(
+        error instanceof Error
+          ? error.message
+          : "Message failed to send. Retry from the message.",
+      );
     },
     onSuccess: () => {
       setUploads((current) =>
         current.filter((item) => item.status !== "ready"),
       );
+      setMessageActionError(null);
+      invalidateActiveMessages();
     },
-    onSettled: invalidateActiveMessages,
   });
 
   const reactionMutation = useMutation({
@@ -237,8 +262,21 @@ export function useMessageActions({
       ),
   });
 
+  const retryFailedMessage = (message: Message) => {
+    if (!message.clientMessageId || sendMessage.isPending) return;
+
+    sendMessage.mutate({
+      body: message.body,
+      clientMessageId: message.clientMessageId,
+      attachmentIds: (message.attachments ?? []).map(
+        (attachment) => attachment.id,
+      ),
+    });
+  };
+
   return {
     sendMessage,
+    retryFailedMessage,
     reactionMutation,
     editMessage,
     deleteMessage,
