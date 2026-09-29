@@ -64,7 +64,11 @@ export function useTypingEmitter({
       }
 
       if (typingRoomRef.current && typingRoomRef.current !== room) {
-        sendTypingEvent(socketRef.current, "typing.stopped", typingRoomRef.current);
+        sendTypingEvent(
+          socketRef.current,
+          "typing.stopped",
+          typingRoomRef.current,
+        );
         typingRoomRef.current = null;
         lastStartedAtRef.current = 0;
       }
