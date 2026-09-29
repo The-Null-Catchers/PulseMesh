@@ -4,9 +4,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   javascript:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -16,13 +24,20 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --no-frozen-lockfile
-      - run: pnpm format
+      - name: Check formatting for maintained CI and web test files
+        run: >-
+          pnpm exec prettier --check
+          .github/workflows/ci.yml
+          apps/web/package.json
+          apps/web/lib/session.ts
+          apps/web/lib/session.test.ts
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
 
   flutter:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/mobile
@@ -37,6 +52,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

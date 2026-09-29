@@ -49,6 +49,7 @@ import {
   useRef,
   useState
 } from 'react';
+import { tokenExpiresAt, tokenSubject } from '../lib/session';
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -265,27 +266,6 @@ async function request<T>(
   }
 
   return (await response.json()) as T;
-}
-
-function decodeTokenPayload(token: string): Record<string, unknown> | null {
-  try {
-    const [, payload] = token.split('.');
-    if (!payload) return null;
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(atob(normalized)) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-function tokenSubject(token: string): string | null {
-  const parsed = decodeTokenPayload(token);
-  return typeof parsed?.sub === 'string' ? parsed.sub : null;
-}
-
-function tokenExpiresAt(token: string): number | null {
-  const parsed = decodeTokenPayload(token);
-  return typeof parsed?.exp === 'number' ? parsed.exp * 1000 : null;
 }
 
 function RemoteMedia({
