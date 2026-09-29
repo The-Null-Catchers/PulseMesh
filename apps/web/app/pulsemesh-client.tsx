@@ -1756,6 +1756,13 @@ function WorkspaceApp({
               )}
               <form
                 onSubmit={submitMessage}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  Array.from(event.dataTransfer.files).forEach((file) =>
+                    void uploadFile(file)
+                  );
+                }}
                 className="flex items-end gap-2 rounded-2xl border border-white/10 bg-white/[0.045] p-2 shadow-lg shadow-black/10"
               >
                 <input
@@ -1782,6 +1789,12 @@ function WorkspaceApp({
                   onChange={(event) =>
                     onComposerChange(event.target.value)
                   }
+                  onPaste={(event) => {
+                    const files = Array.from(event.clipboardData.files);
+                    if (files.length > 0) {
+                      files.forEach((file) => void uploadFile(file));
+                    }
+                  }}
                   rows={1}
                   disabled={!activeRoom}
                   placeholder={
