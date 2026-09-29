@@ -69,7 +69,7 @@ Read the architecture notes in `docs/` before deploying.
 2. core messaging — implemented
 3. realtime and presence — implemented
 4. files and notifications — implemented
-5. voice rooms — next
-6. video and screen sharing
+5. voice rooms — implemented
+6. video and screen sharing — implemented
 7. offline-first mobile synchronization
 8. moderation, E2EE, observability and hardening

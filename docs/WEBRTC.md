@@ -10,8 +10,9 @@ The API persists:
 
 - call ID, creator, kind, provider and timestamps
 - active participant rows per authenticated device session
-- mute, deafen and connection state
-- later video/screen-share state without changing the call identity
+- mute, deafen, camera, screen-share and connection state
+
+Workspace voice channels are audio-only in the initial mesh provider. Direct and group conversations may create voice or video calls.
 
 The browser and Flutter clients both expose a mesh media-session adapter. The UI depends on that adapter rather than on raw `RTCPeerConnection` calls, so the provider can later move to LiveKit, mediasoup or Janus.
 
@@ -19,7 +20,7 @@ The browser and Flutter clients both expose a mesh media-session adapter. The UI
 
 Signaling travels through the existing WebSocket gateway.
 
-Each authenticated socket is automatically subscribed to two private rooms:
+Each authenticated socket is automatically subscribed to:
 
 - `user:<userId>`
 - `session:<sessionId>`
@@ -29,6 +30,16 @@ Offers, answers and ICE candidates target a concrete call participant and are de
 The sender must have an active participant row for the same call. Target participant membership is revalidated server-side.
 
 Speaking state is an ephemeral room event with a short Redis TTL and is never replayed after reconnect.
+
+## Camera and screen sharing
+
+Camera tracks use the same peer connections established for audio. Switching camera devices replaces the outgoing video track rather than renegotiating an entirely new call.
+
+On the web, screen sharing uses `navigator.mediaDevices.getDisplayMedia`. Starting a share replaces the current outgoing video track with the display track. When the browser or user stops capture, PulseMesh restores the camera track automatically when one exists.
+
+The durable participant row exposes `cameraEnabled` and `screenSharing`, so reconnecting clients can reconstruct call UI state and identify the active presenter. Media bytes themselves remain peer-to-peer/TURN relayed and are never stored by the API.
+
+Flutter supports camera capture and camera switching. Browser screen capture remains the Phase 6 screen-sharing surface because mobile screen capture needs platform-specific foreground-service/broadcast permissions.
 
 ## ICE and TURN
 
@@ -52,11 +63,12 @@ Mesh is intentionally the first provider, not the permanent scaling model. Pract
 
 The provider boundary keeps these responsibilities outside chat persistence:
 
-- microphone capture
+- microphone and camera capture
 - speaker/deafen behavior
 - device switching
+- screen capture
 - peer lifecycle
 - offer/answer/ICE exchange
 - remote media streams
 
-Phase 6 adds camera and screen-share tracks on top of the same call/session model.
+When room sizes outgrow mesh, an SFU adapter can take over the same session and participant contracts.

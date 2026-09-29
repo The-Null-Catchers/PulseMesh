@@ -61,20 +61,33 @@ Implemented:
 - microphone mute/deafen state
 - microphone selection
 - ephemeral speaking state
-- browser mesh media adapter
-- Flutter mesh media adapter
+- browser and Flutter mesh media adapters
 - replaceable provider boundary for a future SFU
 
 ## Phase 6 — Video and Screen Sharing
 
+Implemented:
+
+- video calls for direct and group conversations
+- camera capture and camera device switching on web and Flutter
+- server-authoritative camera state
+- browser screen capture with `getDisplayMedia`
+- active presenter state through participant `screenSharing`
+- video sender track replacement without restarting the call
+- automatic camera restoration when screen capture ends
+- realtime participant state recovery through durable call snapshots
+- voice channels remain audio-only in the initial mesh provider
+
+## Phase 7 — Offline Mobile
+
 Next:
 
-- camera tracks
-- browser screen capture
-- active presenter state
-- track replacement without restarting the call
-- video-oriented call UI state recovery
+- local cached conversation/message database
+- pending outgoing queue
+- incremental synchronization cursors
+- idempotent reconnect reconciliation
+- connectivity-aware flush
 
-## Phases 7–8
+## Phase 8
 
-Offline-first mobile synchronization, moderation, E2EE, observability and final hardening land as separate green-CI slices.
+Moderation, E2EE, observability and final hardening land after offline sync as a separate green-CI slice.

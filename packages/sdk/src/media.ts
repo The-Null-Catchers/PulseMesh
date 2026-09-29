@@ -16,10 +16,14 @@ export interface BrowserMeshMediaOptions {
     stream: MediaStream
   ) => void;
   onPeerState?: (state: MediaPeerState) => void;
+  onScreenShareEnded?: () => void;
 }
 
 export interface MediaSessionAdapter {
   startAudio(deviceId?: string): Promise<MediaStream>;
+  startCamera(deviceId?: string): Promise<MediaStream>;
+  startScreenShare(): Promise<MediaStream>;
+  stopScreenShare(): Promise<void>;
   connectPeer(
     participantId: string,
     initiator: boolean
@@ -30,14 +34,18 @@ export interface MediaSessionAdapter {
   ): Promise<void>;
   setMuted(muted: boolean): void;
   setDeafened(deafened: boolean): void;
+  setCameraEnabled(enabled: boolean): void;
   selectMicrophone(deviceId: string): Promise<void>;
+  selectCamera(deviceId: string): Promise<void>;
   leave(): void;
 }
 
 export class BrowserMeshMediaSession
   implements MediaSessionAdapter
 {
-  private localStream: MediaStream | null = null;
+  private audioTrack: MediaStreamTrack | null = null;
+  private cameraTrack: MediaStreamTrack | null = null;
+  private screenTrack: MediaStreamTrack | null = null;
   private readonly peers = new Map<
     string,
     RTCPeerConnection
@@ -62,29 +70,105 @@ export class BrowserMeshMediaSession
           : true,
         video: false
       });
-    this.localStream?.getTracks().forEach((track) =>
-      track.stop()
-    );
-    this.localStream = stream;
-
     const track = stream.getAudioTracks()[0];
-    if (track) {
-      for (const peer of this.peers.values()) {
-        const sender = peer
-          .getSenders()
-          .find(
-            (candidate) =>
-              candidate.track?.kind === 'audio'
-          );
-        if (sender) {
-          await sender.replaceTrack(track);
-        } else {
-          peer.addTrack(track, stream);
-        }
-      }
+    if (!track) {
+      stream.getTracks().forEach((item) => item.stop());
+      throw new Error('Microphone did not produce an audio track');
+    }
+
+    const wasMuted = this.audioTrack?.enabled === false;
+    this.audioTrack?.stop();
+    this.audioTrack = track;
+    track.enabled = !wasMuted;
+
+    await this.replaceTrackForAllPeers(
+      'audio',
+      track,
+      stream
+    );
+    return stream;
+  }
+
+  async startCamera(
+    deviceId?: string
+  ): Promise<MediaStream> {
+    const stream =
+      await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: deviceId
+          ? { deviceId: { exact: deviceId } }
+          : true
+      });
+    const track = stream.getVideoTracks()[0];
+    if (!track) {
+      stream.getTracks().forEach((item) => item.stop());
+      throw new Error('Camera did not produce a video track');
+    }
+
+    const wasDisabled =
+      this.cameraTrack?.enabled === false;
+    this.cameraTrack?.stop();
+    this.cameraTrack = track;
+    track.enabled = !wasDisabled;
+
+    if (!this.screenTrack) {
+      await this.replaceTrackForAllPeers(
+        'video',
+        track,
+        stream
+      );
     }
 
     return stream;
+  }
+
+  async startScreenShare(): Promise<MediaStream> {
+    const stream =
+      await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false
+      });
+    const track = stream.getVideoTracks()[0];
+    if (!track) {
+      stream.getTracks().forEach((item) => item.stop());
+      throw new Error(
+        'Screen capture did not produce a video track'
+      );
+    }
+
+    this.screenTrack?.stop();
+    this.screenTrack = track;
+    track.addEventListener(
+      'ended',
+      () => {
+        if (this.screenTrack !== track) return;
+        void this.stopScreenShare().finally(() => {
+          this.options.onScreenShareEnded?.();
+        });
+      },
+      { once: true }
+    );
+
+    await this.replaceTrackForAllPeers(
+      'video',
+      track,
+      stream
+    );
+    return stream;
+  }
+
+  async stopScreenShare(): Promise<void> {
+    const track = this.screenTrack;
+    this.screenTrack = null;
+    if (track?.readyState !== 'ended') track?.stop();
+
+    await this.replaceTrackForAllPeers(
+      'video',
+      this.cameraTrack,
+      this.cameraTrack
+        ? new MediaStream([this.cameraTrack])
+        : null
+    );
   }
 
   async connectPeer(
@@ -149,11 +233,9 @@ export class BrowserMeshMediaSession
   }
 
   setMuted(muted: boolean): void {
-    this.localStream
-      ?.getAudioTracks()
-      .forEach((track) => {
-        track.enabled = !muted;
-      });
+    if (this.audioTrack) {
+      this.audioTrack.enabled = !muted;
+    }
   }
 
   setDeafened(deafened: boolean): void {
@@ -165,18 +247,22 @@ export class BrowserMeshMediaSession
     }
   }
 
+  setCameraEnabled(enabled: boolean): void {
+    if (this.cameraTrack) {
+      this.cameraTrack.enabled = enabled;
+    }
+  }
+
   async selectMicrophone(
     deviceId: string
   ): Promise<void> {
-    const muted =
-      this.localStream?.getAudioTracks()[0]?.enabled ===
-      false;
-    const stream = await this.startAudio(deviceId);
-    if (muted) {
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = false;
-      });
-    }
+    await this.startAudio(deviceId);
+  }
+
+  async selectCamera(
+    deviceId: string
+  ): Promise<void> {
+    await this.startCamera(deviceId);
   }
 
   leave(): void {
@@ -192,10 +278,16 @@ export class BrowserMeshMediaSession
     }
     this.remoteStreams.clear();
 
-    this.localStream?.getTracks().forEach((track) =>
-      track.stop()
-    );
-    this.localStream = null;
+    this.audioTrack?.stop();
+    this.cameraTrack?.stop();
+    this.screenTrack?.stop();
+    this.audioTrack = null;
+    this.cameraTrack = null;
+    this.screenTrack = null;
+  }
+
+  private activeVideoTrack(): MediaStreamTrack | null {
+    return this.screenTrack ?? this.cameraTrack;
   }
 
   private ensurePeer(
@@ -208,10 +300,19 @@ export class BrowserMeshMediaSession
       iceServers: this.options.iceServers
     });
 
-    if (this.localStream) {
-      for (const track of this.localStream.getTracks()) {
-        peer.addTrack(track, this.localStream);
-      }
+    if (this.audioTrack) {
+      peer.addTrack(
+        this.audioTrack,
+        new MediaStream([this.audioTrack])
+      );
+    }
+
+    const videoTrack = this.activeVideoTrack();
+    if (videoTrack) {
+      peer.addTrack(
+        videoTrack,
+        new MediaStream([videoTrack])
+      );
     }
 
     peer.onicecandidate = (event) => {
@@ -254,5 +355,27 @@ export class BrowserMeshMediaSession
 
     this.peers.set(participantId, peer);
     return peer;
+  }
+
+  private async replaceTrackForAllPeers(
+    kind: 'audio' | 'video',
+    track: MediaStreamTrack | null,
+    stream: MediaStream | null
+  ): Promise<void> {
+    for (const peer of this.peers.values()) {
+      const sender = peer
+        .getSenders()
+        .find(
+          (candidate) =>
+            candidate.track?.kind === kind ||
+            (!candidate.track && kind === 'video')
+        );
+
+      if (sender) {
+        await sender.replaceTrack(track);
+      } else if (track && stream) {
+        peer.addTrack(track, stream);
+      }
+    }
   }
 }
