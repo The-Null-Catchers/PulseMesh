@@ -46,13 +46,13 @@ import {
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AuthScreen } from "../components/auth-screen";
 import { RemoteMedia } from "../components/remote-media";
-import { request, WS_URL } from "../lib/api";
+import { usePulseMeshRealtime } from "../hooks/use-pulsemesh-realtime";
+import { request } from "../lib/api";
 import { initials } from "../lib/display";
 import { tokenExpiresAt, tokenSubject } from "../lib/session";
 import type {
   ActiveCall,
   Attachment,
-  CallParticipant,
   Channel,
   Conversation,
   Message,
@@ -106,19 +106,12 @@ function WorkspaceApp({
   const [remoteStreams, setRemoteStreams] = useState<
     Record<string, MediaStream>
   >({});
-  const [socketState, setSocketState] = useState<
-    "connecting" | "ready" | "reconnecting"
-  >("connecting");
-  const [typing, setTyping] = useState(false);
-  const socketRef = useRef<WebSocket | null>(null);
   const mediaSessionRef = useRef<BrowserMeshMediaSession | null>(null);
   const selfParticipantIdRef = useRef<string | null>(null);
   const activeCallRef = useRef<ActiveCall | null>(null);
   const activeCallRoomRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadXhrsRef = useRef<Map<string, XMLHttpRequest>>(new Map());
-  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectAttempt = useRef(0);
   const lastReadRef = useRef<Record<string, string>>({});
 
   const workspaces = useQuery({
@@ -261,274 +254,25 @@ function WorkspaceApp({
       ),
   });
 
-  useEffect(() => {
-    if (!activeRoom || !activeMessageKey) return;
-
-    let cancelled = false;
-
-    const connect = async () => {
-      setSocketState(
-        reconnectAttempt.current > 0 ? "reconnecting" : "connecting",
-      );
-      try {
-        const { ticket } = await request<{ ticket: string }>(
-          "/realtime/ticket",
-          token,
-          { method: "POST", body: "{}" },
-        );
-        if (cancelled) return;
-
-        const url = new URL(WS_URL);
-        url.searchParams.set("ticket", ticket);
-        const socket = new WebSocket(url);
-        socketRef.current = socket;
-
-        socket.onopen = () => {
-          reconnectAttempt.current = 0;
-        };
-
-        socket.onmessage = (message) => {
-          let event: any;
-          try {
-            event = JSON.parse(String(message.data));
-          } catch {
-            return;
-          }
-
-          if (event.type === "session.ready") {
-            const sequence = Number(
-              sessionStorage.getItem("pulsemesh:last-sequence") ?? "0",
-            );
-            socket.send(
-              JSON.stringify({
-                type: "session.resume",
-                lastSequence: Number.isFinite(sequence) ? sequence : 0,
-                rooms: [
-                  activeRoom,
-                  workspaceId ? `workspace:${workspaceId}` : null,
-                  activeCallRoomRef.current,
-                ].filter((room): room is string => Boolean(room)),
-              }),
-            );
-            return;
-          }
-
-          if (event.type === "session.resumed") {
-            socket.send(
-              JSON.stringify({
-                type: "room.subscribe",
-                room: activeRoom,
-              }),
-            );
-            socket.send(
-              JSON.stringify({
-                type: "view.active",
-                room: activeRoom,
-              }),
-            );
-            setSocketState("ready");
-            if (event.truncated) {
-              void queryClient.invalidateQueries({
-                queryKey: ["messages", activeMessageKey],
-              });
-            }
-            return;
-          }
-
-          if (typeof event.sequence === "number") {
-            sessionStorage.setItem(
-              "pulsemesh:last-sequence",
-              String(event.sequence),
-            );
-          }
-
-          if (
-            event.type === "presence.updated" &&
-            event.room === `workspace:${workspaceId}`
-          ) {
-            queryClient.setQueryData<{ items: PresenceMember[] }>(
-              ["presence", workspaceId],
-              (current) => ({
-                items: (current?.items ?? []).map((member) =>
-                  member.userId === event.payload.userId
-                    ? {
-                        ...member,
-                        status: event.payload.status,
-                        customText: event.payload.customText,
-                        lastSeenAt: event.payload.lastSeenAt,
-                        connectedDevices: event.payload.connectedDevices,
-                        activeWorkspaceId: event.payload.activeWorkspaceId,
-                      }
-                    : member,
-                ),
-              }),
-            );
-            return;
-          }
-
-          if (
-            event.type === "call.signal" &&
-            activeCallRef.current &&
-            event.payload.callId === activeCallRef.current.id
-          ) {
-            void mediaSessionRef.current
-              ?.handleSignal(
-                event.payload.fromParticipantId,
-                event.payload.signal,
-              )
-              .catch((error) =>
-                setCallError(
-                  error instanceof Error
-                    ? error.message
-                    : "WebRTC signaling failed",
-                ),
-              );
-            return;
-          }
-
-          if (
-            activeCallRef.current &&
-            event.payload?.callId === activeCallRef.current.id &&
-            event.type === "call.participant.joined"
-          ) {
-            const participant = event.payload.participant as CallParticipant;
-            setActiveCall((current) =>
-              current
-                ? {
-                    ...current,
-                    participants: [
-                      ...current.participants.filter(
-                        (item) => item.id !== participant.id,
-                      ),
-                      participant,
-                    ],
-                  }
-                : current,
-            );
-            const selfId = selfParticipantIdRef.current;
-            if (selfId && participant.id !== selfId) {
-              void mediaSessionRef.current
-                ?.connectPeer(participant.id, selfId < participant.id)
-                .catch(() => undefined);
-            }
-            return;
-          }
-
-          if (
-            activeCallRef.current &&
-            event.payload?.callId === activeCallRef.current.id &&
-            event.type === "call.participant.updated"
-          ) {
-            const participant = event.payload.participant as CallParticipant;
-            setActiveCall((current) =>
-              current
-                ? {
-                    ...current,
-                    participants: current.participants.map((item) =>
-                      item.id === participant.id ? participant : item,
-                    ),
-                  }
-                : current,
-            );
-            return;
-          }
-
-          if (
-            activeCallRef.current &&
-            event.payload?.callId === activeCallRef.current.id &&
-            event.type === "call.participant.left"
-          ) {
-            const participant = event.payload.participant as CallParticipant;
-            setActiveCall((current) =>
-              current
-                ? {
-                    ...current,
-                    participants: current.participants.filter(
-                      (item) => item.id !== participant.id,
-                    ),
-                  }
-                : current,
-            );
-            setRemoteStreams((current) => {
-              const next = { ...current };
-              delete next[participant.id];
-              return next;
-            });
-            return;
-          }
-
-          if (
-            activeCallRef.current &&
-            event.type === "call.ended" &&
-            event.payload.callId === activeCallRef.current.id
-          ) {
-            mediaSessionRef.current?.leave();
-            mediaSessionRef.current = null;
-            selfParticipantIdRef.current = null;
-            activeCallRef.current = null;
-            activeCallRoomRef.current = null;
-            setActiveCall(null);
-            setActiveCallRoom(null);
-            setLocalVideoStream(null);
-            setRemoteStreams({});
-            setCameraEnabled(false);
-            setScreenSharing(false);
-            setMuted(false);
-            setDeafened(false);
-            return;
-          }
-
-          if (
-            event.room === activeRoom &&
-            (event.type.startsWith("message.") ||
-              event.type.startsWith("reaction."))
-          ) {
-            void queryClient.invalidateQueries({
-              queryKey: ["messages", activeMessageKey],
-            });
-          }
-
-          if (event.room === activeRoom && event.type === "typing.started") {
-            setTyping(true);
-          }
-          if (event.room === activeRoom && event.type === "typing.stopped") {
-            setTyping(false);
-          }
-        };
-
-        socket.onclose = () => {
-          if (cancelled) return;
-          setSocketState("reconnecting");
-          reconnectAttempt.current += 1;
-          const delay = Math.min(
-            1000 * 2 ** Math.min(reconnectAttempt.current, 5),
-            30000,
-          );
-          retryRef.current = setTimeout(connect, delay);
-        };
-
-        socket.onerror = () => socket.close();
-      } catch {
-        if (cancelled) return;
-        setSocketState("reconnecting");
-        reconnectAttempt.current += 1;
-        retryRef.current = setTimeout(
-          connect,
-          Math.min(1000 * 2 ** reconnectAttempt.current, 30000),
-        );
-      }
-    };
-
-    void connect();
-
-    return () => {
-      cancelled = true;
-      if (retryRef.current) clearTimeout(retryRef.current);
-      socketRef.current?.close(1000, "Conversation changed");
-      socketRef.current = null;
-      setTyping(false);
-    };
-  }, [activeMessageKey, activeRoom, queryClient, token, workspaceId]);
+  const { socketRef, socketState, typing } = usePulseMeshRealtime({
+    token,
+    activeRoom,
+    activeMessageKey,
+    workspaceId,
+    activeCallRef,
+    activeCallRoomRef,
+    mediaSessionRef,
+    selfParticipantIdRef,
+    setActiveCall,
+    setActiveCallRoom,
+    setLocalVideoStream,
+    setRemoteStreams,
+    setCameraEnabled,
+    setScreenSharing,
+    setMuted,
+    setDeafened,
+    setCallError,
+  });
 
   const sendMessage = useMutation({
     mutationFn: async ({
@@ -760,18 +504,6 @@ function WorkspaceApp({
       }),
     onSettled: onLoggedOut,
   });
-
-  useEffect(() => {
-    if (socketState !== "ready") return;
-    const heartbeat = () => {
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(JSON.stringify({ type: "presence.heartbeat" }));
-      }
-    };
-    heartbeat();
-    const timer = window.setInterval(heartbeat, 25_000);
-    return () => window.clearInterval(timer);
-  }, [socketState]);
 
   useEffect(() => {
     const latestMessage = messages.data?.items[0];
