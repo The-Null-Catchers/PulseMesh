@@ -52,6 +52,7 @@ describe("request", () => {
       request<{ ok: boolean }>("/protected", "stale-token"),
     ).resolves.toEqual({ ok: true });
 
+    // The original request is retried exactly once with the refreshed token.
     expect(refresher).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
