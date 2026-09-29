@@ -8,6 +8,12 @@ import { AppError } from '../errors.js';
 import { queueRedis } from '../realtime/bus.js';
 import { hashPassword, verifyPassword } from '../security/passwords.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../security/tokens.js';
+import {
+  clearWebRefreshCookie,
+  isWebAuthRequest,
+  refreshTokenFromRequest,
+  setWebRefreshCookie
+} from './web-session.js';
 
 const notificationQueue = new Queue('notifications', { connection: queueRedis });
 
@@ -109,12 +115,16 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     });
 
     const tokens = await issueSession(created.id, body, request);
+    if (isWebAuthRequest(request)) {
+      setWebRefreshCookie(reply, tokens.refreshToken);
+      return reply.code(201).send({ accessToken: tokens.accessToken });
+    }
     return reply.code(201).send(tokens);
   });
 
   app.post('/auth/login', {
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } }
-  }, async (request) => {
+  }, async (request, reply) => {
     const body = loginSchema.parse(request.body);
     const result = await pool.query<{ id: string; password_hash: string }>(
       'SELECT id,password_hash FROM users WHERE email=$1',
@@ -124,14 +134,23 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!user || !(await verifyPassword(user.password_hash, body.password))) {
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect');
     }
-    return issueSession(user.id, body, request);
+    const tokens = await issueSession(user.id, body, request);
+    if (isWebAuthRequest(request)) {
+      setWebRefreshCookie(reply, tokens.refreshToken);
+      return { accessToken: tokens.accessToken };
+    }
+    return tokens;
   });
 
-  app.post('/auth/refresh', async (request) => {
-    const body = z.object({ refreshToken: z.string().min(20) }).parse(request.body);
+  app.post('/auth/refresh', async (request, reply) => {
+    const body = z.object({ refreshToken: z.string().min(20).optional() }).parse(request.body ?? {});
+    const refreshToken = refreshTokenFromRequest(request, body.refreshToken);
+    if (!refreshToken) {
+      throw new AppError(401, 'INVALID_REFRESH_TOKEN', 'Refresh token is required');
+    }
     let claims;
     try {
-      claims = await verifyRefreshToken(body.refreshToken);
+      claims = await verifyRefreshToken(refreshToken);
     } catch {
       throw new AppError(401, 'INVALID_REFRESH_TOKEN', 'Refresh token is invalid');
     }
@@ -155,7 +174,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         session.user_id !== claims.sub ||
         session.family_id !== claims.familyId ||
         session.generation !== claims.generation ||
-        session.refresh_token_hash !== sha256(body.refreshToken);
+        session.refresh_token_hash !== sha256(refreshToken);
 
       if (invalid) {
         await client.query(
@@ -184,18 +203,25 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     });
 
     if (!rotated) {
+      clearWebRefreshCookie(reply);
       throw new AppError(401, 'REFRESH_REUSE_DETECTED', 'Session family was revoked');
+    }
+    if (isWebAuthRequest(request)) {
+      setWebRefreshCookie(reply, rotated.refreshToken);
+      return { accessToken: rotated.accessToken };
     }
     return rotated;
   });
 
-  app.post('/auth/logout', { preHandler: app.authenticate }, async (request) => {
+  app.post('/auth/logout', { preHandler: app.authenticate }, async (request, reply) => {
     await pool.query('UPDATE sessions SET revoked_at=now() WHERE id=$1', [request.auth?.sessionId]);
+    if (isWebAuthRequest(request)) clearWebRefreshCookie(reply);
     return { ok: true };
   });
 
-  app.post('/auth/logout-all', { preHandler: app.authenticate }, async (request) => {
+  app.post('/auth/logout-all', { preHandler: app.authenticate }, async (request, reply) => {
     await pool.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1', [request.auth?.userId]);
+    if (isWebAuthRequest(request)) clearWebRefreshCookie(reply);
     return { ok: true };
   });
 
