@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import { conversationLabel, initials } from "./display";
 import type { Conversation } from "./types";
 
-function conversation(
-  overrides: Partial<Conversation> = {},
-): Conversation {
+function conversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
     id: "11111111-1111-1111-1111-111111111111",
     kind: "direct",
@@ -47,19 +45,13 @@ describe("conversationLabel", () => {
 
   it("prefers an explicit conversation name", () => {
     expect(
-      conversationLabel(
-        conversation({ kind: "group", name: "Core Team" }),
-        "self",
-      ),
+      conversationLabel(conversation({ kind: "group", name: "Core Team" }), "self"),
     ).toBe("Core Team");
   });
 
   it("keeps all members for unnamed groups", () => {
     expect(
-      conversationLabel(
-        conversation({ kind: "group", name: null }),
-        "self",
-      ),
+      conversationLabel(conversation({ kind: "group", name: null }), "self"),
     ).toBe("Mohammed, Lama");
   });
 });
