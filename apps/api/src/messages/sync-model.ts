@@ -9,6 +9,8 @@ export type MessageSyncRow = {
   channel_id: string | null;
   conversation_id: string | null;
   body: string | null;
+  encryption_version: string | null;
+  encrypted_payload: string | null;
   reply_to_message_id: string | null;
   created_at: Date | null;
   edited_at: Date | null;
@@ -49,6 +51,8 @@ export function mapMessageSyncRow(
           channelId: row.channel_id,
           conversationId: row.conversation_id,
           body: row.body ?? '',
+          encryptionVersion: row.encryption_version,
+          encryptedPayload: row.encrypted_payload,
           replyToMessageId: row.reply_to_message_id,
           attachments: row.attachments ?? [],
           createdAt: row.created_at?.toISOString() ?? null,
