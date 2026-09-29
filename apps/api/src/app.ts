@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import { ZodError } from 'zod';
 import { config } from './config.js';
@@ -43,6 +44,8 @@ export async function buildApp() {
     requestIdHeader: 'x-request-id',
     genReqId: () => randomUUID()
   });
+
+  await app.register(cookie);
 
   await app.register(cors, {
     origin: config.WEB_ORIGIN,
