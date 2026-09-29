@@ -15,6 +15,7 @@ PulseMesh is a production-oriented realtime communication platform for teams, co
 - shared realtime contracts and reconnecting SDK
 - FCM, Web Push and SMTP notification delivery
 - verified direct uploads with asynchronous media processing
+- SQLite offline cache, outgoing queue and cursor reconciliation
 - migrations, seed data, CI and architecture documentation
 
 ## Quick start
@@ -50,6 +51,8 @@ File bytes move directly between clients and S3-compatible storage through signe
 
 WebRTC signaling is kept behind a replaceable media boundary so initial small-group calls can later move to an SFU.
 
+Flutter persists recent data and pending sends in SQLite. Reconnect reconciliation uses a durable server-side message journal plus per-room cursors, so missed WebSocket events are repaired without downloading complete histories.
+
 Read the architecture notes in `docs/` before deploying.
 
 ## Architecture docs
@@ -71,5 +74,5 @@ Read the architecture notes in `docs/` before deploying.
 4. files and notifications — implemented
 5. voice rooms — implemented
 6. video and screen sharing — implemented
-7. offline-first mobile synchronization
+7. offline-first mobile synchronization — implemented
 8. moderation, E2EE, observability and hardening
