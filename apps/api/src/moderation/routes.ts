@@ -14,7 +14,7 @@ import {
 } from './service.js';
 import { invalidateModerationRules } from './anti-spam.js';
 
-function actor(request: { auth?: { userId?: string } }) {
+function actor(request: { auth?: { userId?: string } | null }) {
   const userId = request.auth?.userId;
   if (!userId) throw new Error('Missing authenticated user');
   return userId;
