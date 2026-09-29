@@ -19,6 +19,7 @@ import { AppError } from '../errors.js';
 import { queueRedis } from '../realtime/bus.js';
 import {
   createDownloadUrl,
+  createThumbnailUrl,
   fileForUser,
   fileS3
 } from './service.js';
@@ -30,7 +31,9 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     '/files/presign',
     {
       preHandler: app.authenticate,
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
+      config: {
+        rateLimit: { max: 30, timeWindow: '1 minute' }
+      }
     },
     async (request, reply) => {
       const body = z
@@ -44,6 +47,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       if (!userId) throw new Error('Missing user');
 
       const mimeType = normalizeMimeType(body.mimeType);
+
       if (!isAllowedUploadMime(mimeType)) {
         throw new AppError(
           415,
@@ -52,7 +56,9 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
         );
       }
 
-      if (body.sizeBytes > maxUploadSizeForMime(mimeType)) {
+      if (
+        body.sizeBytes > maxUploadSizeForMime(mimeType)
+      ) {
         throw new AppError(
           413,
           'FILE_TOO_LARGE',
@@ -61,10 +67,19 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const fileId = randomUUID();
-      const storageKey = 'uploads/' + userId + '/' + fileId;
+      const storageKey =
+        'uploads/' + userId + '/' + fileId;
+
       await pool.query(
         "INSERT INTO files (id,owner_user_id,storage_key,original_name,mime_type,size_bytes,status) VALUES ($1,$2,$3,$4,$5,$6,'pending')",
-        [fileId, userId, storageKey, body.name, mimeType, body.sizeBytes]
+        [
+          fileId,
+          userId,
+          storageKey,
+          body.name,
+          mimeType,
+          body.sizeBytes
+        ]
       );
 
       const command = new PutObjectCommand({
@@ -73,9 +88,12 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
         ContentType: mimeType,
         Metadata: { 'pulsemesh-file-id': fileId }
       });
-      const uploadUrl = await getSignedUrl(fileS3, command, {
-        expiresIn: 900
-      });
+
+      const uploadUrl = await getSignedUrl(
+        fileS3,
+        command,
+        { expiresIn: 900 }
+      );
 
       return reply.code(201).send({
         fileId,
@@ -91,7 +109,9 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     '/files/:fileId/complete',
     { preHandler: app.authenticate },
     async (request) => {
-      const params = z.object({ fileId: z.string().uuid() }).parse(request.params);
+      const params = z
+        .object({ fileId: z.string().uuid() })
+        .parse(request.params);
       const userId = request.auth?.userId;
       if (!userId) throw new Error('Missing user');
 
@@ -107,14 +127,28 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
         [params.fileId]
       );
       const file = result.rows[0];
-      if (!file) throw new AppError(404, 'FILE_NOT_FOUND', 'File not found');
+
+      if (!file) {
+        throw new AppError(
+          404,
+          'FILE_NOT_FOUND',
+          'File not found'
+        );
+      }
       if (file.owner_user_id !== userId) {
-        throw new AppError(403, 'FILE_ACCESS_DENIED', 'File access denied');
+        throw new AppError(
+          403,
+          'FILE_ACCESS_DENIED',
+          'File access denied'
+        );
       }
 
-      if (['uploaded', 'processing', 'ready'].includes(file.status)) {
+      if (
+        ['uploaded', 'processing', 'ready'].includes(file.status)
+      ) {
         return { fileId: file.id, status: file.status };
       }
+
       if (file.status !== 'pending') {
         throw new AppError(
           409,
@@ -141,8 +175,11 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
 
       const expectedSize = Number(file.size_bytes);
       const actualSize = Number(head.ContentLength ?? -1);
-      const metadataId = head.Metadata?.['pulsemesh-file-id'];
-      const actualMime = normalizeMimeType(head.ContentType ?? '');
+      const metadataId =
+        head.Metadata?.['pulsemesh-file-id'];
+      const actualMime = normalizeMimeType(
+        head.ContentType ?? ''
+      );
 
       if (
         actualSize !== expectedSize ||
@@ -151,8 +188,12 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       ) {
         await pool.query(
           "UPDATE files SET status='rejected',processing_error=$2 WHERE id=$1",
-          [file.id, 'Uploaded object metadata did not match the signed request']
+          [
+            file.id,
+            'Uploaded object metadata did not match the signed request'
+          ]
         );
+
         throw new AppError(
           409,
           'FILE_UPLOAD_MISMATCH',
@@ -164,18 +205,26 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
         "UPDATE files SET status='uploaded',processing_error=NULL WHERE id=$1",
         [file.id]
       );
+
       await fileQueue.add(
         'file.process',
         { fileId: file.id },
         {
+          jobId: 'file-' + file.id,
           attempts: 4,
-          backoff: { type: 'exponential', delay: 2_000 },
+          backoff: {
+            type: 'exponential',
+            delay: 2_000
+          },
           removeOnComplete: 100,
           removeOnFail: 500
         }
       );
 
-      return { fileId: file.id, status: 'uploaded' };
+      return {
+        fileId: file.id,
+        status: 'uploaded'
+      };
     }
   );
 
@@ -183,15 +232,22 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     '/files/:fileId',
     { preHandler: app.authenticate },
     async (request) => {
-      const params = z.object({ fileId: z.string().uuid() }).parse(request.params);
+      const params = z
+        .object({ fileId: z.string().uuid() })
+        .parse(request.params);
       const userId = request.auth?.userId;
       if (!userId) throw new Error('Missing user');
 
-      const file = await fileForUser(params.fileId, userId);
+      const file = await fileForUser(
+        params.fileId,
+        userId
+      );
+
       return {
         id: file.id,
         name: file.original_name,
-        mimeType: file.detected_mime_type ?? file.mime_type,
+        mimeType:
+          file.detected_mime_type ?? file.mime_type,
         declaredMimeType: file.mime_type,
         sizeBytes: Number(file.size_bytes),
         width: file.width,
@@ -201,9 +257,12 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
         hasThumbnail: Boolean(file.thumbnail_key),
         hasPreview: Boolean(file.preview_key),
         processingError:
-          file.owner_user_id === userId ? file.processing_error : null,
+          file.owner_user_id === userId
+            ? file.processing_error
+            : null,
         createdAt: file.created_at.toISOString(),
-        completedAt: file.completed_at?.toISOString() ?? null
+        completedAt:
+          file.completed_at?.toISOString() ?? null
       };
     }
   );
@@ -212,11 +271,17 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     '/files/:fileId/download',
     { preHandler: app.authenticate },
     async (request) => {
-      const params = z.object({ fileId: z.string().uuid() }).parse(request.params);
+      const params = z
+        .object({ fileId: z.string().uuid() })
+        .parse(request.params);
       const userId = request.auth?.userId;
       if (!userId) throw new Error('Missing user');
 
-      const file = await fileForUser(params.fileId, userId);
+      const file = await fileForUser(
+        params.fileId,
+        userId
+      );
+
       if (file.status !== 'ready') {
         throw new AppError(
           409,
@@ -232,32 +297,63 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
+  app.post(
+    '/files/:fileId/thumbnail',
+    { preHandler: app.authenticate },
+    async (request) => {
+      const params = z
+        .object({ fileId: z.string().uuid() })
+        .parse(request.params);
+      const userId = request.auth?.userId;
+      if (!userId) throw new Error('Missing user');
+
+      const file = await fileForUser(
+        params.fileId,
+        userId
+      );
+
+      return {
+        url: await createThumbnailUrl(file),
+        expiresIn: 300
+      };
+    }
+  );
+
   app.delete(
     '/files/:fileId',
     { preHandler: app.authenticate },
     async (request) => {
-      const params = z.object({ fileId: z.string().uuid() }).parse(request.params);
+      const params = z
+        .object({ fileId: z.string().uuid() })
+        .parse(request.params);
       const userId = request.auth?.userId;
       if (!userId) throw new Error('Missing user');
 
       const result = await pool.query<{
         storage_key: string;
+        thumbnail_key: string | null;
+        preview_key: string | null;
         owner_user_id: string;
-        status: string;
       }>(
-        'SELECT storage_key,owner_user_id,status FROM files WHERE id=$1',
+        'SELECT storage_key,thumbnail_key,preview_key,owner_user_id FROM files WHERE id=$1',
         [params.fileId]
       );
       const file = result.rows[0];
+
       if (!file) return { ok: true };
       if (file.owner_user_id !== userId) {
-        throw new AppError(403, 'FILE_ACCESS_DENIED', 'File access denied');
+        throw new AppError(
+          403,
+          'FILE_ACCESS_DENIED',
+          'File access denied'
+        );
       }
 
       const attached = await pool.query(
         'SELECT 1 FROM message_attachments WHERE file_id=$1 LIMIT 1',
         [params.fileId]
       );
+
       if (attached.rowCount) {
         throw new AppError(
           409,
@@ -266,13 +362,28 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
         );
       }
 
-      await fileS3.send(
-        new DeleteObjectCommand({
-          Bucket: config.S3_BUCKET,
-          Key: file.storage_key
-        })
+      const keys = [
+        file.storage_key,
+        file.thumbnail_key,
+        file.preview_key
+      ].filter((value): value is string => Boolean(value));
+
+      await Promise.all(
+        keys.map((key) =>
+          fileS3.send(
+            new DeleteObjectCommand({
+              Bucket: config.S3_BUCKET,
+              Key: key
+            })
+          )
+        )
       );
-      await pool.query('DELETE FROM files WHERE id=$1', [params.fileId]);
+
+      await pool.query(
+        'DELETE FROM files WHERE id=$1',
+        [params.fileId]
+      );
+
       return { ok: true };
     }
   );

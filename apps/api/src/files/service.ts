@@ -46,7 +46,10 @@ export async function fileForUser(
     [fileId]
   );
   const file = fileResult.rows[0];
-  if (!file) throw new AppError(404, 'FILE_NOT_FOUND', 'File not found');
+
+  if (!file) {
+    throw new AppError(404, 'FILE_NOT_FOUND', 'File not found');
+  }
   if (file.owner_user_id === userId) return file;
 
   const attachments = await pool.query<{
@@ -66,25 +69,58 @@ export async function fileForUser(
     }
     if (
       attachment.conversation_id &&
-      (await canAccessConversation(userId, attachment.conversation_id))
+      (await canAccessConversation(
+        userId,
+        attachment.conversation_id
+      ))
     ) {
       return file;
     }
   }
 
-  throw new AppError(403, 'FILE_ACCESS_DENIED', 'File access denied');
+  throw new AppError(
+    403,
+    'FILE_ACCESS_DENIED',
+    'File access denied'
+  );
 }
 
-export async function createDownloadUrl(file: StoredFile): Promise<string> {
+export async function createDownloadUrl(
+  file: StoredFile
+): Promise<string> {
   const encodedName = encodeURIComponent(file.original_name);
   return getSignedUrl(
     fileS3,
     new GetObjectCommand({
       Bucket: config.S3_BUCKET,
       Key: file.storage_key,
-      ResponseContentType: file.detected_mime_type ?? file.mime_type,
+      ResponseContentType:
+        file.detected_mime_type ?? file.mime_type,
       ResponseContentDisposition:
         "attachment; filename*=UTF-8''" + encodedName
+    }),
+    { expiresIn: 300 }
+  );
+}
+
+export async function createThumbnailUrl(
+  file: StoredFile
+): Promise<string> {
+  if (!file.thumbnail_key) {
+    throw new AppError(
+      404,
+      'THUMBNAIL_NOT_FOUND',
+      'Thumbnail is not available'
+    );
+  }
+
+  return getSignedUrl(
+    fileS3,
+    new GetObjectCommand({
+      Bucket: config.S3_BUCKET,
+      Key: file.thumbnail_key,
+      ResponseContentType: 'image/webp',
+      ResponseContentDisposition: 'inline'
     }),
     { expiresIn: 300 }
   );
