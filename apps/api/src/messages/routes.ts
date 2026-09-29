@@ -14,6 +14,7 @@ import { attachReadyFiles } from './attachments.js';
 import { createMentionNotifications } from './mentions.js';
 import { enforceWorkspaceMessagePolicy } from '../moderation/anti-spam.js';
 import { channelWorkspaceId } from '../moderation/service.js';
+import { messagesCreated } from '../observability/metrics.js';
 
 const sendSchema = z
   .object({
@@ -210,6 +211,7 @@ export async function messageRoutes(
       };
 
       await publishRealtime(event);
+      messagesCreated.inc({ destination: 'channel' });
       return reply.code(201).send(event.payload);
     }
   );
