@@ -59,8 +59,8 @@ import { useNotifications } from "../hooks/use-notifications";
 import { usePulseMeshCall } from "../hooks/use-pulsemesh-call";
 import { usePulseMeshRealtime } from "../hooks/use-pulsemesh-realtime";
 import { request, setAccessTokenRefresher } from "../lib/api";
-import { initials } from "../lib/display";
-import { tokenExpiresAt } from "../lib/session";
+import { conversationLabel, initials } from "../lib/display";
+import { tokenExpiresAt, tokenSubject } from "../lib/session";
 import type {
   Channel,
   Conversation,
@@ -80,6 +80,7 @@ function WorkspaceApp({
   onLoggedOut: () => void;
 }) {
   const queryClient = useQueryClient();
+  const currentUserId = tokenSubject(token);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [channelId, setChannelId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -385,11 +386,8 @@ function WorkspaceApp({
   );
   const currentTitle =
     currentChannel?.name ??
-    currentConversation?.name ??
-    (currentConversation?.kind === "direct"
-      ? currentConversation.members
-          .map((member) => member.displayName)
-          .join(", ")
+    (currentConversation
+      ? conversationLabel(currentConversation, currentUserId)
       : "Select a conversation");
   const textChannels =
     channels.data?.items.filter((item) => item.kind === "text") ?? [];
@@ -588,11 +586,10 @@ function WorkspaceApp({
               {(conversations.data?.items ?? [])
                 .slice(0, 12)
                 .map((conversation) => {
-                  const label =
-                    conversation.name ??
-                    conversation.members
-                      .map((member) => member.displayName)
-                      .join(", ");
+                  const label = conversationLabel(
+                    conversation,
+                    currentUserId,
+                  );
                   return (
                     <button
                       key={conversation.id}
