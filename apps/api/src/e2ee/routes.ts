@@ -30,7 +30,7 @@ const bundleSchema = z.object({
 });
 
 function identity(request: {
-  auth?: { userId?: string; sessionId?: string };
+  auth?: { userId?: string; sessionId?: string } | null;
 }) {
   const userId = request.auth?.userId;
   const sessionId = request.auth?.sessionId;
