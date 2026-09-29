@@ -3,6 +3,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dispatch, SetStateAction, useState } from "react";
 import { request } from "../lib/api";
+import {
+  markOptimisticMessageFailed,
+  upsertOptimisticMessage,
+} from "../lib/message-cache";
 import type { Message, Page, UploadItem } from "../lib/types";
 
 export function useMessageActions({
@@ -98,24 +102,28 @@ export function useMessageActions({
         },
       };
 
-      queryClient.setQueryData<Page<Message>>(key, {
-        items: [optimistic, ...(previous?.items ?? [])],
-        nextCursor: previous?.nextCursor ?? null,
-      });
+      queryClient.setQueryData<Page<Message>>(
+        key,
+        upsertOptimisticMessage(previous, optimistic),
+      );
 
-      return { previous, key };
+      return { key, clientMessageId };
     },
-    onError: (_error, _variables, context) => {
-      if (context?.key) {
-        queryClient.setQueryData(context.key, context.previous);
-      }
+    onError: (_error, variables, context) => {
+      if (!context?.key) return;
+
+      queryClient.setQueryData<Page<Message> | undefined>(
+        context.key,
+        (current) =>
+          markOptimisticMessageFailed(current, variables.clientMessageId),
+      );
     },
     onSuccess: () => {
       setUploads((current) =>
         current.filter((item) => item.status !== "ready"),
       );
+      invalidateActiveMessages();
     },
-    onSettled: invalidateActiveMessages,
   });
 
   const reactionMutation = useMutation({
@@ -237,8 +245,21 @@ export function useMessageActions({
       ),
   });
 
+  const retryFailedMessage = (message: Message) => {
+    if (!message.clientMessageId || sendMessage.isPending) return;
+
+    sendMessage.mutate({
+      body: message.body,
+      clientMessageId: message.clientMessageId,
+      attachmentIds: (message.attachments ?? []).map(
+        (attachment) => attachment.id,
+      ),
+    });
+  };
+
   return {
     sendMessage,
+    retryFailedMessage,
     reactionMutation,
     editMessage,
     deleteMessage,
