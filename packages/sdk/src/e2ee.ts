@@ -1,4 +1,4 @@
-export type E2eeProtocol = 'libsignal-v1';
+export type E2eeProtocol = "libsignal-v1";
 
 export interface E2eePublicDeviceBundle {
   registrationId: number;

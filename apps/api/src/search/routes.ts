@@ -1,13 +1,15 @@
-import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
-import { pool } from '../db/index.js';
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { pool } from "../db/index.js";
 
 export async function searchRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/search', { preHandler: app.authenticate }, async (request) => {
-    const query = z.object({
-      q: z.string().trim().min(2).max(200),
-      limit: z.coerce.number().int().min(1).max(50).default(20)
-    }).parse(request.query);
+  app.get("/search", { preHandler: app.authenticate }, async (request) => {
+    const query = z
+      .object({
+        q: z.string().trim().min(2).max(200),
+        limit: z.coerce.number().int().min(1).max(50).default(20),
+      })
+      .parse(request.query);
     const userId = request.auth?.userId;
 
     const messages = await pool.query(
@@ -33,12 +35,12 @@ export async function searchRoutes(app: FastifyInstance): Promise<void> {
          AND to_tsvector('simple',m.body) @@ plainto_tsquery('simple',$2)
        ORDER BY rank DESC,m.created_at DESC
        LIMIT $3`,
-      [userId, query.q, query.limit]
+      [userId, query.q, query.limit],
     );
 
     const users = await pool.query(
-      'SELECT DISTINCT u.id,u.username,u.display_name,u.avatar_url FROM users u JOIN workspace_members target ON target.user_id=u.id JOIN workspace_members mine ON mine.workspace_id=target.workspace_id AND mine.user_id=$1 WHERE u.username ILIKE $2 OR u.display_name ILIKE $2 ORDER BY u.display_name LIMIT 10',
-      [userId, '%' + query.q + '%']
+      "SELECT DISTINCT u.id,u.username,u.display_name,u.avatar_url FROM users u JOIN workspace_members target ON target.user_id=u.id JOIN workspace_members mine ON mine.workspace_id=target.workspace_id AND mine.user_id=$1 WHERE u.username ILIKE $2 OR u.display_name ILIKE $2 ORDER BY u.display_name LIMIT 10",
+      [userId, "%" + query.q + "%"],
     );
 
     const channels = await pool.query(
@@ -53,9 +55,13 @@ export async function searchRoutes(app: FastifyInstance): Promise<void> {
          AND (c.visibility<>'private' OR cm.user_id IS NOT NULL)
        ORDER BY c.name
        LIMIT 10`,
-      [userId, '%' + query.q + '%']
+      [userId, "%" + query.q + "%"],
     );
 
-    return { messages: messages.rows, users: users.rows, channels: channels.rows };
+    return {
+      messages: messages.rows,
+      users: users.rows,
+      channels: channels.rows,
+    };
   });
 }

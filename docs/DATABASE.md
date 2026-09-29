@@ -29,4 +29,3 @@ Optional one-to-one E2EE adds:
 - `e2ee_one_time_prekeys` with transactional claim timestamps
 
 No private cryptographic key or decrypted E2EE body belongs in PostgreSQL.
-

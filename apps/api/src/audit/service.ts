@@ -1,5 +1,5 @@
-import type { PoolClient } from 'pg';
-import { pool } from '../db/index.js';
+import type { PoolClient } from "pg";
+import { pool } from "../db/index.js";
 
 type AuditTarget = {
   type?: string | null;
@@ -30,7 +30,7 @@ export async function recordAudit(input: {
       input.action,
       input.target?.type ?? null,
       input.target?.id ?? null,
-      JSON.stringify(input.metadata ?? {})
-    ]
+      JSON.stringify(input.metadata ?? {}),
+    ],
   );
 }

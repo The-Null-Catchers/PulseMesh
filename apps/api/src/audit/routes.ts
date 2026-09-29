@@ -1,13 +1,11 @@
-import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
-import { pool } from '../db/index.js';
-import { assertWorkspacePermission } from '../authorization/service.js';
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { pool } from "../db/index.js";
+import { assertWorkspacePermission } from "../authorization/service.js";
 
-export async function auditRoutes(
-  app: FastifyInstance
-): Promise<void> {
+export async function auditRoutes(app: FastifyInstance): Promise<void> {
   app.get(
-    '/workspaces/:workspaceId/audit-logs',
+    "/workspaces/:workspaceId/audit-logs",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
@@ -16,23 +14,19 @@ export async function auditRoutes(
       const query = z
         .object({
           before: z.string().regex(/^\d+$/).optional(),
-          limit: z.coerce.number().int().min(1).max(100).default(50)
+          limit: z.coerce.number().int().min(1).max(100).default(50),
         })
         .parse(request.query);
       const userId = request.auth?.userId;
-      if (!userId) throw new Error('Missing authenticated user');
+      if (!userId) throw new Error("Missing authenticated user");
 
-      await assertWorkspacePermission(
-        userId,
-        params.workspaceId,
-        'audit.view'
-      );
+      await assertWorkspacePermission(userId, params.workspaceId, "audit.view");
 
       const values: unknown[] = [params.workspaceId];
-      let beforeClause = '';
+      let beforeClause = "";
       if (query.before) {
         values.push(query.before);
-        beforeClause = 'AND a.id < $2::bigint';
+        beforeClause = "AND a.id < $2::bigint";
       }
       values.push(query.limit + 1);
 
@@ -46,7 +40,7 @@ export async function auditRoutes(
          ${beforeClause}
          ORDER BY a.id DESC
          LIMIT $${values.length}`,
-        values
+        values,
       );
 
       const hasMore = result.rows.length > query.limit;
@@ -55,9 +49,9 @@ export async function auditRoutes(
         items,
         nextBefore:
           hasMore && items.length > 0
-            ? items[items.length - 1]?.id ?? null
-            : null
+            ? (items[items.length - 1]?.id ?? null)
+            : null,
       };
-    }
+    },
   );
 }

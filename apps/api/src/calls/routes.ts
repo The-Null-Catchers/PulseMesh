@@ -1,28 +1,28 @@
-import type { FastifyInstance } from 'fastify';
-import { createHmac, randomUUID } from 'node:crypto';
-import { z } from 'zod';
-import type { RealtimeEvent } from '@pulsemesh/realtime';
+import type { FastifyInstance } from "fastify";
+import { createHmac, randomUUID } from "node:crypto";
+import { z } from "zod";
+import type { RealtimeEvent } from "@pulsemesh/realtime";
 import {
   assertWorkspacePermission,
   canAccessChannel,
-  canAccessConversation
-} from '../authorization/service.js';
-import { config } from '../config.js';
-import { pool, withTransaction } from '../db/index.js';
-import { AppError } from '../errors.js';
-import { publishRealtime } from '../realtime/bus.js';
+  canAccessConversation,
+} from "../authorization/service.js";
+import { config } from "../config.js";
+import { pool, withTransaction } from "../db/index.js";
+import { AppError } from "../errors.js";
+import { publishRealtime } from "../realtime/bus.js";
 import {
   callDestinationRoom,
   canAccessCall,
-  getCallContext
-} from './service.js';
+  getCallContext,
+} from "./service.js";
 
 type CallRow = {
   id: string;
   channel_id: string | null;
   conversation_id: string | null;
   created_by: string;
-  kind: 'voice' | 'video';
+  kind: "voice" | "video";
   status: string;
   provider: string;
   started_at: Date;
@@ -55,14 +55,14 @@ function participantPayload(row: ParticipantRow) {
     cameraEnabled: row.camera_enabled,
     screenSharing: row.screen_sharing,
     connectionState: row.connection_state,
-    joinedAt: row.joined_at.toISOString()
+    joinedAt: row.joined_at.toISOString(),
   };
 }
 
 async function participants(callId: string) {
   const result = await pool.query<ParticipantRow>(
-    'SELECT p.id,p.user_id,u.username,u.display_name,u.avatar_url,p.muted,p.deafened,p.camera_enabled,p.screen_sharing,p.connection_state,p.joined_at FROM call_participants p JOIN users u ON u.id=p.user_id WHERE p.call_id=$1 AND p.left_at IS NULL ORDER BY p.joined_at,p.id',
-    [callId]
+    "SELECT p.id,p.user_id,u.username,u.display_name,u.avatar_url,p.muted,p.deafened,p.camera_enabled,p.screen_sharing,p.connection_state,p.joined_at FROM call_participants p JOIN users u ON u.id=p.user_id WHERE p.call_id=$1 AND p.left_at IS NULL ORDER BY p.joined_at,p.id",
+    [callId],
   );
   return result.rows.map(participantPayload);
 }
@@ -78,22 +78,22 @@ async function callResponse(call: CallRow) {
     provider: call.provider,
     startedAt: call.started_at.toISOString(),
     endedAt: call.ended_at?.toISOString() ?? null,
-    participants: await participants(call.id)
+    participants: await participants(call.id),
   };
 }
 
 async function destinationAccess(input: {
   userId: string;
-  kind: 'voice' | 'video';
+  kind: "voice" | "video";
   channelId?: string;
   conversationId?: string;
 }): Promise<{ room: string; workspaceId: string | null }> {
   if (input.channelId) {
-    if (input.kind !== 'voice') {
+    if (input.kind !== "voice") {
       throw new AppError(
         400,
-        'VOICE_CHANNEL_AUDIO_ONLY',
-        'Workspace voice channels are audio-only in the mesh provider'
+        "VOICE_CHANNEL_AUDIO_ONLY",
+        "Workspace voice channels are audio-only in the mesh provider",
       );
     }
 
@@ -101,163 +101,146 @@ async function destinationAccess(input: {
       workspace_id: string;
       kind: string;
       archived_at: Date | null;
-    }>(
-      'SELECT workspace_id,kind,archived_at FROM channels WHERE id=$1',
-      [input.channelId]
-    );
+    }>("SELECT workspace_id,kind,archived_at FROM channels WHERE id=$1", [
+      input.channelId,
+    ]);
     const row = channel.rows[0];
     if (
       !row ||
-      row.kind !== 'voice' ||
+      row.kind !== "voice" ||
       row.archived_at ||
       !(await canAccessChannel(input.userId, input.channelId))
     ) {
       throw new AppError(
         403,
-        'VOICE_CHANNEL_ACCESS_DENIED',
-        'Voice channel access denied'
+        "VOICE_CHANNEL_ACCESS_DENIED",
+        "Voice channel access denied",
       );
     }
     await assertWorkspacePermission(
       input.userId,
       row.workspace_id,
-      'call.create'
+      "call.create",
     );
     return {
-      room: 'channel:' + input.channelId,
-      workspaceId: row.workspace_id
+      room: "channel:" + input.channelId,
+      workspaceId: row.workspace_id,
     };
   }
 
   if (
     input.conversationId &&
-    (await canAccessConversation(
-      input.userId,
-      input.conversationId
-    ))
+    (await canAccessConversation(input.userId, input.conversationId))
   ) {
     return {
-      room: 'conversation:' + input.conversationId,
-      workspaceId: null
+      room: "conversation:" + input.conversationId,
+      workspaceId: null,
     };
   }
 
   throw new AppError(
     403,
-    'CALL_ACCESS_DENIED',
-    'Call destination access denied'
+    "CALL_ACCESS_DENIED",
+    "Call destination access denied",
   );
 }
 
 async function publishParticipant(
   type:
-    | 'call.participant.joined'
-    | 'call.participant.left'
-    | 'call.participant.updated',
+    | "call.participant.joined"
+    | "call.participant.left"
+    | "call.participant.updated",
   room: string,
   callId: string,
-  participant: ReturnType<typeof participantPayload>
+  participant: ReturnType<typeof participantPayload>,
 ): Promise<void> {
   const event: RealtimeEvent = {
     id: randomUUID(),
     type,
     room,
     occurredAt: new Date().toISOString(),
-    payload: { callId, participant }
+    payload: { callId, participant },
   };
   await publishRealtime(event);
 }
 
-export async function callRoutes(
-  app: FastifyInstance
-): Promise<void> {
+export async function callRoutes(app: FastifyInstance): Promise<void> {
   app.get(
-    '/calls/ice-config',
+    "/calls/ice-config",
     { preHandler: app.authenticate },
     async (request) => {
       const userId = request.auth?.userId;
-      if (!userId) throw new Error('Missing user');
+      if (!userId) throw new Error("Missing user");
 
       const expiresAt = Math.floor(Date.now() / 1000) + 3600;
-      const username = expiresAt + ':' + userId;
-      const credential = createHmac(
-        'sha1',
-        config.TURN_SHARED_SECRET
-      )
+      const username = expiresAt + ":" + userId;
+      const credential = createHmac("sha1", config.TURN_SHARED_SECRET)
         .update(username)
-        .digest('base64');
+        .digest("base64");
 
       return {
         iceServers: [
           {
-            urls: config.TURN_URLS.split(',')
+            urls: config.TURN_URLS.split(",")
               .map((value) => value.trim())
               .filter(Boolean),
             username,
-            credential
-          }
+            credential,
+          },
         ],
-        expiresAt: new Date(expiresAt * 1000).toISOString()
+        expiresAt: new Date(expiresAt * 1000).toISOString(),
       };
-    }
+    },
   );
 
   app.post(
-    '/calls',
+    "/calls",
     {
       preHandler: app.authenticate,
       config: {
-        rateLimit: { max: 20, timeWindow: '1 minute' }
-      }
+        rateLimit: { max: 20, timeWindow: "1 minute" },
+      },
     },
     async (request, reply) => {
       const body = z
         .object({
           channelId: z.string().uuid().optional(),
           conversationId: z.string().uuid().optional(),
-          kind: z.enum(['voice', 'video']).default('voice')
+          kind: z.enum(["voice", "video"]).default("voice"),
         })
         .refine(
-          (value) =>
-            Boolean(value.channelId) !==
-            Boolean(value.conversationId),
+          (value) => Boolean(value.channelId) !== Boolean(value.conversationId),
           {
-            message:
-              'Exactly one call destination is required'
-          }
+            message: "Exactly one call destination is required",
+          },
         )
         .parse(request.body);
 
       const userId = request.auth?.userId;
       const sessionId = request.auth?.sessionId;
-      if (!userId || !sessionId) throw new Error('Missing user');
+      if (!userId || !sessionId) throw new Error("Missing user");
 
       const access = await destinationAccess({
         userId,
         kind: body.kind,
-        ...(body.channelId
-          ? { channelId: body.channelId }
-          : {}),
-        ...(body.conversationId
-          ? { conversationId: body.conversationId }
-          : {})
+        ...(body.channelId ? { channelId: body.channelId } : {}),
+        ...(body.conversationId ? { conversationId: body.conversationId } : {}),
       });
 
       const destinationKey = body.channelId
-        ? 'channel:' + body.channelId
-        : 'conversation:' + body.conversationId;
+        ? "channel:" + body.channelId
+        : "conversation:" + body.conversationId;
 
       const outcome = await withTransaction(async (client) => {
-        await client.query(
-          'SELECT pg_advisory_xact_lock(hashtext($1))',
-          ['pulsemesh-call:' + destinationKey]
-        );
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          "pulsemesh-call:" + destinationKey,
+        ]);
 
         const existing = await client.query<CallRow>(
           body.channelId
             ? "SELECT id,channel_id,conversation_id,created_by,kind,status,provider,started_at,ended_at FROM calls WHERE channel_id=$1 AND status='active' LIMIT 1"
             : "SELECT id,channel_id,conversation_id,created_by,kind,status,provider,started_at,ended_at FROM calls WHERE conversation_id=$1 AND status='active' LIMIT 1",
-          [body.channelId ?? body.conversationId]
+          [body.channelId ?? body.conversationId],
         );
 
         let call = existing.rows[0];
@@ -270,23 +253,23 @@ export async function callRoutes(
               body.channelId ?? null,
               body.conversationId ?? null,
               userId,
-              body.kind
-            ]
+              body.kind,
+            ],
           );
           call = inserted.rows[0];
           created = true;
         }
 
-        if (!call) throw new Error('Call creation failed');
+        if (!call) throw new Error("Call creation failed");
 
         const participant = await client.query<ParticipantRow>(
           "INSERT INTO call_participants (call_id,user_id,session_id,connection_state) VALUES ($1,$2,$3,'connected') ON CONFLICT (call_id,session_id) WHERE session_id IS NOT NULL AND left_at IS NULL DO UPDATE SET connection_state='connected',updated_at=now() RETURNING id,user_id,(SELECT username FROM users WHERE id=user_id) AS username,(SELECT display_name FROM users WHERE id=user_id) AS display_name,(SELECT avatar_url FROM users WHERE id=user_id) AS avatar_url,muted,deafened,camera_enabled,screen_sharing,connection_state,joined_at",
-          [call.id, userId, sessionId]
+          [call.id, userId, sessionId],
         );
 
         const participantRow = participant.rows[0];
         if (!participantRow) {
-          throw new Error('Call participant creation failed');
+          throw new Error("Call participant creation failed");
         }
 
         return { call, participantRow, created };
@@ -295,7 +278,7 @@ export async function callRoutes(
       if (outcome.created) {
         const event: RealtimeEvent = {
           id: randomUUID(),
-          type: 'call.started',
+          type: "call.started",
           room: access.room,
           occurredAt: new Date().toISOString(),
           payload: {
@@ -303,50 +286,46 @@ export async function callRoutes(
             kind: outcome.call.kind,
             channelId: outcome.call.channel_id,
             conversationId: outcome.call.conversation_id,
-            startedAt: outcome.call.started_at.toISOString()
-          }
+            startedAt: outcome.call.started_at.toISOString(),
+          },
         };
         await publishRealtime(event);
       }
 
       await publishParticipant(
-        'call.participant.joined',
+        "call.participant.joined",
         access.room,
         outcome.call.id,
-        participantPayload(outcome.participantRow)
+        participantPayload(outcome.participantRow),
       );
 
       return reply
         .code(outcome.created ? 201 : 200)
         .send(await callResponse(outcome.call));
-    }
+    },
   );
 
   app.get(
-    '/calls/:callId',
+    "/calls/:callId",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
         .object({ callId: z.string().uuid() })
         .parse(request.params);
       const userId = request.auth?.userId;
-      if (!userId) throw new Error('Missing user');
+      if (!userId) throw new Error("Missing user");
 
       const context = await getCallContext(params.callId);
       if (!(await canAccessCall(userId, context))) {
-        throw new AppError(
-          403,
-          'CALL_ACCESS_DENIED',
-          'Call access denied'
-        );
+        throw new AppError(403, "CALL_ACCESS_DENIED", "Call access denied");
       }
 
       return callResponse(context);
-    }
+    },
   );
 
   app.post(
-    '/calls/:callId/join',
+    "/calls/:callId/join",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
@@ -354,43 +333,39 @@ export async function callRoutes(
         .parse(request.params);
       const userId = request.auth?.userId;
       const sessionId = request.auth?.sessionId;
-      if (!userId || !sessionId) throw new Error('Missing user');
+      if (!userId || !sessionId) throw new Error("Missing user");
 
       const context = await getCallContext(params.callId);
       if (
-        context.status !== 'active' ||
+        context.status !== "active" ||
         !(await canAccessCall(userId, context))
       ) {
-        throw new AppError(
-          403,
-          'CALL_JOIN_DENIED',
-          'Call is not available'
-        );
+        throw new AppError(403, "CALL_JOIN_DENIED", "Call is not available");
       }
 
       const result = await pool.query<ParticipantRow>(
         "INSERT INTO call_participants (call_id,user_id,session_id,connection_state) VALUES ($1,$2,$3,'connected') ON CONFLICT (call_id,session_id) WHERE session_id IS NOT NULL AND left_at IS NULL DO UPDATE SET connection_state='connected',updated_at=now() RETURNING id,user_id,(SELECT username FROM users WHERE id=user_id) AS username,(SELECT display_name FROM users WHERE id=user_id) AS display_name,(SELECT avatar_url FROM users WHERE id=user_id) AS avatar_url,muted,deafened,camera_enabled,screen_sharing,connection_state,joined_at",
-        [context.id, userId, sessionId]
+        [context.id, userId, sessionId],
       );
       const participant = result.rows[0];
-      if (!participant) throw new Error('Call join failed');
+      if (!participant) throw new Error("Call join failed");
 
       await publishParticipant(
-        'call.participant.joined',
+        "call.participant.joined",
         callDestinationRoom(context),
         context.id,
-        participantPayload(participant)
+        participantPayload(participant),
       );
 
       return {
         call: await callResponse(context),
-        participant: participantPayload(participant)
+        participant: participantPayload(participant),
       };
-    }
+    },
   );
 
   app.patch(
-    '/calls/:callId/participant',
+    "/calls/:callId/participant",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
@@ -403,51 +378,41 @@ export async function callRoutes(
           cameraEnabled: z.boolean().optional(),
           screenSharing: z.boolean().optional(),
           connectionState: z
-            .enum([
-              'connecting',
-              'connected',
-              'reconnecting',
-              'failed'
-            ])
-            .optional()
+            .enum(["connecting", "connected", "reconnecting", "failed"])
+            .optional(),
         })
-        .refine(
-          (value) => Object.keys(value).length > 0,
-          { message: 'At least one state field is required' }
-        )
+        .refine((value) => Object.keys(value).length > 0, {
+          message: "At least one state field is required",
+        })
         .parse(request.body);
 
       const userId = request.auth?.userId;
       const sessionId = request.auth?.sessionId;
-      if (!userId || !sessionId) throw new Error('Missing user');
+      if (!userId || !sessionId) throw new Error("Missing user");
 
       const context = await getCallContext(params.callId);
       if (!(await canAccessCall(userId, context))) {
-        throw new AppError(
-          403,
-          'CALL_ACCESS_DENIED',
-          'Call access denied'
-        );
+        throw new AppError(403, "CALL_ACCESS_DENIED", "Call access denied");
       }
 
-      if (body.cameraEnabled && context.kind !== 'video') {
+      if (body.cameraEnabled && context.kind !== "video") {
         throw new AppError(
           409,
-          'CAMERA_NOT_AVAILABLE',
-          'Camera can only be enabled in a video call'
+          "CAMERA_NOT_AVAILABLE",
+          "Camera can only be enabled in a video call",
         );
       }
 
       if (body.screenSharing && !context.conversation_id) {
         throw new AppError(
           409,
-          'SCREEN_SHARE_NOT_AVAILABLE',
-          'Screen sharing is available in direct and group calls'
+          "SCREEN_SHARE_NOT_AVAILABLE",
+          "Screen sharing is available in direct and group calls",
         );
       }
 
       const result = await pool.query<ParticipantRow>(
-        'UPDATE call_participants p SET muted=COALESCE($4,muted),deafened=COALESCE($5,deafened),camera_enabled=COALESCE($6,camera_enabled),screen_sharing=COALESCE($7,screen_sharing),connection_state=COALESCE($8,connection_state),updated_at=now() FROM users u WHERE p.call_id=$1 AND p.user_id=$2 AND p.session_id=$3 AND p.left_at IS NULL AND u.id=p.user_id RETURNING p.id,p.user_id,u.username,u.display_name,u.avatar_url,p.muted,p.deafened,p.camera_enabled,p.screen_sharing,p.connection_state,p.joined_at',
+        "UPDATE call_participants p SET muted=COALESCE($4,muted),deafened=COALESCE($5,deafened),camera_enabled=COALESCE($6,camera_enabled),screen_sharing=COALESCE($7,screen_sharing),connection_state=COALESCE($8,connection_state),updated_at=now() FROM users u WHERE p.call_id=$1 AND p.user_id=$2 AND p.session_id=$3 AND p.left_at IS NULL AND u.id=p.user_id RETURNING p.id,p.user_id,u.username,u.display_name,u.avatar_url,p.muted,p.deafened,p.camera_enabled,p.screen_sharing,p.connection_state,p.joined_at",
         [
           params.callId,
           userId,
@@ -456,32 +421,32 @@ export async function callRoutes(
           body.deafened ?? null,
           body.cameraEnabled ?? null,
           body.screenSharing ?? null,
-          body.connectionState ?? null
-        ]
+          body.connectionState ?? null,
+        ],
       );
       const participant = result.rows[0];
 
       if (!participant) {
         throw new AppError(
           404,
-          'CALL_PARTICIPANT_NOT_FOUND',
-          'Active call participant was not found'
+          "CALL_PARTICIPANT_NOT_FOUND",
+          "Active call participant was not found",
         );
       }
 
       const payload = participantPayload(participant);
       await publishParticipant(
-        'call.participant.updated',
+        "call.participant.updated",
         callDestinationRoom(context),
         context.id,
-        payload
+        payload,
       );
       return payload;
-    }
+    },
   );
 
   app.post(
-    '/calls/:callId/leave',
+    "/calls/:callId/leave",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
@@ -489,88 +454,86 @@ export async function callRoutes(
         .parse(request.params);
       const userId = request.auth?.userId;
       const sessionId = request.auth?.sessionId;
-      if (!userId || !sessionId) throw new Error('Missing user');
+      if (!userId || !sessionId) throw new Error("Missing user");
 
       const context = await getCallContext(params.callId);
       const room = callDestinationRoom(context);
 
       const left = await pool.query<ParticipantRow>(
-        'UPDATE call_participants p SET left_at=now(),connection_state=\'disconnected\',updated_at=now() FROM users u WHERE p.call_id=$1 AND p.user_id=$2 AND p.session_id=$3 AND p.left_at IS NULL AND u.id=p.user_id RETURNING p.id,p.user_id,u.username,u.display_name,u.avatar_url,p.muted,p.deafened,p.camera_enabled,p.screen_sharing,p.connection_state,p.joined_at',
-        [params.callId, userId, sessionId]
+        "UPDATE call_participants p SET left_at=now(),connection_state='disconnected',updated_at=now() FROM users u WHERE p.call_id=$1 AND p.user_id=$2 AND p.session_id=$3 AND p.left_at IS NULL AND u.id=p.user_id RETURNING p.id,p.user_id,u.username,u.display_name,u.avatar_url,p.muted,p.deafened,p.camera_enabled,p.screen_sharing,p.connection_state,p.joined_at",
+        [params.callId, userId, sessionId],
       );
 
       const participant = left.rows[0];
       if (participant) {
         await publishParticipant(
-          'call.participant.left',
+          "call.participant.left",
           room,
           context.id,
-          participantPayload(participant)
+          participantPayload(participant),
         );
       }
 
       const remaining = await pool.query(
-        'SELECT 1 FROM call_participants WHERE call_id=$1 AND left_at IS NULL LIMIT 1',
-        [params.callId]
+        "SELECT 1 FROM call_participants WHERE call_id=$1 AND left_at IS NULL LIMIT 1",
+        [params.callId],
       );
 
-      if (!remaining.rowCount && context.status === 'active') {
+      if (!remaining.rowCount && context.status === "active") {
         const ended = await pool.query<{ ended_at: Date }>(
           "UPDATE calls SET status='ended',ended_at=now(),updated_at=now() WHERE id=$1 AND status='active' RETURNING ended_at",
-          [params.callId]
+          [params.callId],
         );
         const endedAt = ended.rows[0]?.ended_at;
         if (endedAt) {
           const event: RealtimeEvent = {
             id: randomUUID(),
-            type: 'call.ended',
+            type: "call.ended",
             room,
             occurredAt: new Date().toISOString(),
             payload: {
               callId: context.id,
-              endedAt: endedAt.toISOString()
-            }
+              endedAt: endedAt.toISOString(),
+            },
           };
           await publishRealtime(event);
         }
       }
 
       return { ok: true };
-    }
+    },
   );
 
   app.post(
-    '/calls/:callId/end',
+    "/calls/:callId/end",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
         .object({ callId: z.string().uuid() })
         .parse(request.params);
       const userId = request.auth?.userId;
-      if (!userId) throw new Error('Missing user');
+      if (!userId) throw new Error("Missing user");
 
       const context = await getCallContext(params.callId);
       if (context.channel_id && context.workspace_id) {
         await assertWorkspacePermission(
           userId,
           context.workspace_id,
-          'call.manage'
+          "call.manage",
         );
       } else if (context.conversation_id) {
         const role = await pool.query<{ role: string }>(
-          'SELECT role FROM conversation_members WHERE conversation_id=$1 AND user_id=$2',
-          [context.conversation_id, userId]
+          "SELECT role FROM conversation_members WHERE conversation_id=$1 AND user_id=$2",
+          [context.conversation_id, userId],
         );
         if (
           context.created_by !== userId &&
-          !['owner', 'admin'].includes(
-            role.rows[0]?.role ?? ''
-          )
+          !["owner", "admin"].includes(role.rows[0]?.role ?? "")
         ) {
           throw new AppError(
             403,
-            'CALL_MANAGE_DENIED',
-            'Call management permission required'
+            "CALL_MANAGE_DENIED",
+            "Call management permission required",
           );
         }
       }
@@ -578,11 +541,11 @@ export async function callRoutes(
       const result = await withTransaction(async (client) => {
         await client.query(
           "UPDATE call_participants SET left_at=COALESCE(left_at,now()),connection_state='disconnected',updated_at=now() WHERE call_id=$1 AND left_at IS NULL",
-          [params.callId]
+          [params.callId],
         );
         return client.query<{ ended_at: Date }>(
           "UPDATE calls SET status='ended',ended_at=COALESCE(ended_at,now()),updated_at=now() WHERE id=$1 AND status='active' RETURNING ended_at",
-          [params.callId]
+          [params.callId],
         );
       });
 
@@ -590,84 +553,84 @@ export async function callRoutes(
       if (endedAt) {
         const event: RealtimeEvent = {
           id: randomUUID(),
-          type: 'call.ended',
+          type: "call.ended",
           room: callDestinationRoom(context),
           occurredAt: new Date().toISOString(),
           payload: {
             callId: context.id,
-            endedAt: endedAt.toISOString()
-          }
+            endedAt: endedAt.toISOString(),
+          },
         };
         await publishRealtime(event);
       }
 
       return { ok: true };
-    }
+    },
   );
 
   async function activeDestinationCall(
     userId: string,
-    field: 'channel_id' | 'conversation_id',
-    destinationId: string
+    field: "channel_id" | "conversation_id",
+    destinationId: string,
   ) {
     const allowed =
-      field === 'channel_id'
+      field === "channel_id"
         ? await canAccessChannel(userId, destinationId)
         : await canAccessConversation(userId, destinationId);
 
     if (!allowed) {
       throw new AppError(
         403,
-        'CALL_ACCESS_DENIED',
-        'Call destination access denied'
+        "CALL_ACCESS_DENIED",
+        "Call destination access denied",
       );
     }
 
     const result = await pool.query<CallRow>(
-      'SELECT id,channel_id,conversation_id,created_by,kind,status,provider,started_at,ended_at FROM calls WHERE ' +
+      "SELECT id,channel_id,conversation_id,created_by,kind,status,provider,started_at,ended_at FROM calls WHERE " +
         field +
         "=$1 AND status='active' LIMIT 1",
-      [destinationId]
+      [destinationId],
     );
     const call = result.rows[0];
     return call ? callResponse(call) : null;
   }
 
   app.get(
-    '/channels/:channelId/call',
+    "/channels/:channelId/call",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
         .object({ channelId: z.string().uuid() })
         .parse(request.params);
       const userId = request.auth?.userId;
-      if (!userId) throw new Error('Missing user');
+      if (!userId) throw new Error("Missing user");
       return {
         call: await activeDestinationCall(
           userId,
-          'channel_id',
-          params.channelId
-        )
+          "channel_id",
+          params.channelId,
+        ),
       };
-    }
+    },
   );
 
   app.get(
-    '/conversations/:conversationId/call',
+    "/conversations/:conversationId/call",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
         .object({ conversationId: z.string().uuid() })
         .parse(request.params);
       const userId = request.auth?.userId;
-      if (!userId) throw new Error('Missing user');
+      if (!userId) throw new Error("Missing user");
       return {
         call: await activeDestinationCall(
           userId,
-          'conversation_id',
-          params.conversationId
-        )
+          "conversation_id",
+          params.conversationId,
+        ),
       };
-    }
+    },
   );
 }

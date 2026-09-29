@@ -1,33 +1,29 @@
-import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
-import { pool, withTransaction } from '../db/index.js';
-import { AppError } from '../errors.js';
-import {
-  isWorkspaceMember
-} from '../authorization/service.js';
-import { recordAudit } from '../audit/service.js';
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { pool, withTransaction } from "../db/index.js";
+import { AppError } from "../errors.js";
+import { isWorkspaceMember } from "../authorization/service.js";
+import { recordAudit } from "../audit/service.js";
 import {
   assertModerationPermission,
   assertReportTarget,
   assertWorkspaceTargetMember,
-  channelWorkspaceId
-} from './service.js';
-import { invalidateModerationRules } from './anti-spam.js';
+  channelWorkspaceId,
+} from "./service.js";
+import { invalidateModerationRules } from "./anti-spam.js";
 
 function actor(request: { auth?: { userId?: string } | null }) {
   const userId = request.auth?.userId;
-  if (!userId) throw new Error('Missing authenticated user');
+  if (!userId) throw new Error("Missing authenticated user");
   return userId;
 }
 
-export async function moderationRoutes(
-  app: FastifyInstance
-): Promise<void> {
+export async function moderationRoutes(app: FastifyInstance): Promise<void> {
   app.post(
-    '/workspaces/:workspaceId/reports',
+    "/workspaces/:workspaceId/reports",
     {
       preHandler: app.authenticate,
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } }
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
     },
     async (request, reply) => {
       const params = z
@@ -37,7 +33,7 @@ export async function moderationRoutes(
         .object({
           reportedUserId: z.string().uuid().optional(),
           messageId: z.string().uuid().optional(),
-          reason: z.string().trim().min(3).max(1000)
+          reason: z.string().trim().min(3).max(1000),
         })
         .parse(request.body);
       const userId = actor(request);
@@ -45,15 +41,15 @@ export async function moderationRoutes(
       if (!(await isWorkspaceMember(userId, params.workspaceId))) {
         throw new AppError(
           403,
-          'WORKSPACE_ACCESS_DENIED',
-          'Workspace access denied'
+          "WORKSPACE_ACCESS_DENIED",
+          "Workspace access denied",
         );
       }
 
       await assertReportTarget({
         workspaceId: params.workspaceId,
         reportedUserId: body.reportedUserId,
-        messageId: body.messageId
+        messageId: body.messageId,
       });
 
       const result = await pool.query<{ id: string }>(
@@ -66,16 +62,16 @@ export async function moderationRoutes(
           userId,
           body.reportedUserId ?? null,
           body.messageId ?? null,
-          body.reason
-        ]
+          body.reason,
+        ],
       );
 
       return reply.code(201).send({ id: result.rows[0]?.id });
-    }
+    },
   );
 
   app.get(
-    '/workspaces/:workspaceId/moderation/reports',
+    "/workspaces/:workspaceId/moderation/reports",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
@@ -83,26 +79,28 @@ export async function moderationRoutes(
         .parse(request.params);
       const query = z
         .object({
-          status: z.enum(['open', 'reviewing', 'resolved', 'dismissed']).optional(),
+          status: z
+            .enum(["open", "reviewing", "resolved", "dismissed"])
+            .optional(),
           beforeId: z.string().uuid().optional(),
-          limit: z.coerce.number().int().min(1).max(100).default(50)
+          limit: z.coerce.number().int().min(1).max(100).default(50),
         })
         .parse(request.query);
       const userId = actor(request);
       await assertModerationPermission(userId, params.workspaceId);
 
       const values: unknown[] = [params.workspaceId];
-      const clauses = ['r.workspace_id=$1'];
+      const clauses = ["r.workspace_id=$1"];
       if (query.status) {
         values.push(query.status);
-        clauses.push('r.status=$' + values.length);
+        clauses.push("r.status=$" + values.length);
       }
       if (query.beforeId) {
         values.push(query.beforeId);
         clauses.push(
           `(r.created_at,r.id) < (
             SELECT created_at,id FROM reports WHERE id=$${values.length}
-          )`
+          )`,
         );
       }
       values.push(query.limit + 1);
@@ -116,10 +114,10 @@ export async function moderationRoutes(
          FROM reports r
          JOIN users reporter ON reporter.id=r.reporter_user_id
          LEFT JOIN users reported ON reported.id=r.reported_user_id
-         WHERE ${clauses.join(' AND ')}
+         WHERE ${clauses.join(" AND ")}
          ORDER BY r.created_at DESC,r.id DESC
          LIMIT $${values.length}`,
-        values
+        values,
       );
 
       const hasMore = result.rows.length > query.limit;
@@ -128,25 +126,25 @@ export async function moderationRoutes(
         items,
         nextBeforeId:
           hasMore && items.length > 0
-            ? items[items.length - 1]?.id ?? null
-            : null
+            ? (items[items.length - 1]?.id ?? null)
+            : null,
       };
-    }
+    },
   );
 
   app.patch(
-    '/workspaces/:workspaceId/moderation/reports/:reportId',
+    "/workspaces/:workspaceId/moderation/reports/:reportId",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
         .object({
           workspaceId: z.string().uuid(),
-          reportId: z.string().uuid()
+          reportId: z.string().uuid(),
         })
         .parse(request.params);
       const body = z
         .object({
-          status: z.enum(['reviewing', 'resolved', 'dismissed'])
+          status: z.enum(["reviewing", "resolved", "dismissed"]),
         })
         .parse(request.body);
       const userId = actor(request);
@@ -157,53 +155,53 @@ export async function moderationRoutes(
          SET status=$3
          WHERE id=$1 AND workspace_id=$2
          RETURNING id,status`,
-        [params.reportId, params.workspaceId, body.status]
+        [params.reportId, params.workspaceId, body.status],
       );
       if (!result.rowCount) {
-        throw new AppError(404, 'REPORT_NOT_FOUND', 'Report not found');
+        throw new AppError(404, "REPORT_NOT_FOUND", "Report not found");
       }
 
       await recordAudit({
         workspaceId: params.workspaceId,
         actorUserId: userId,
-        action: 'moderation.report.updated',
-        target: { type: 'report', id: params.reportId },
-        metadata: { status: body.status }
+        action: "moderation.report.updated",
+        target: { type: "report", id: params.reportId },
+        metadata: { status: body.status },
       });
 
       return result.rows[0];
-    }
+    },
   );
 
   app.post(
-    '/workspaces/:workspaceId/members/:targetUserId/timeout',
+    "/workspaces/:workspaceId/members/:targetUserId/timeout",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
         .object({
           workspaceId: z.string().uuid(),
-          targetUserId: z.string().uuid()
+          targetUserId: z.string().uuid(),
         })
         .parse(request.params);
       const body = z
         .object({
           until: z.string().datetime(),
-          reason: z.string().trim().max(1000).optional()
+          reason: z.string().trim().max(1000).optional(),
         })
         .parse(request.body);
       const userId = actor(request);
       await assertModerationPermission(userId, params.workspaceId);
       await assertWorkspaceTargetMember(
         params.workspaceId,
-        params.targetUserId
+        params.targetUserId,
       );
 
       const until = new Date(body.until);
       if (until <= new Date()) {
         throw new AppError(
           400,
-          'INVALID_TIMEOUT',
-          'Timeout must end in the future'
+          "INVALID_TIMEOUT",
+          "Timeout must end in the future",
         );
       }
 
@@ -212,7 +210,7 @@ export async function moderationRoutes(
           `UPDATE workspace_members
            SET muted_until=$3
            WHERE workspace_id=$1 AND user_id=$2`,
-          [params.workspaceId, params.targetUserId, until]
+          [params.workspaceId, params.targetUserId, until],
         );
         await client.query(
           `INSERT INTO moderation_actions (
@@ -223,34 +221,34 @@ export async function moderationRoutes(
             userId,
             params.targetUserId,
             JSON.stringify({ reason: body.reason ?? null }),
-            until
-          ]
+            until,
+          ],
         );
         await recordAudit({
           client,
           workspaceId: params.workspaceId,
           actorUserId: userId,
-          action: 'member.timeout',
-          target: { type: 'user', id: params.targetUserId },
+          action: "member.timeout",
+          target: { type: "user", id: params.targetUserId },
           metadata: {
             reason: body.reason ?? null,
-            until: until.toISOString()
-          }
+            until: until.toISOString(),
+          },
         });
       });
 
       return { ok: true, until: until.toISOString() };
-    }
+    },
   );
 
   app.delete(
-    '/workspaces/:workspaceId/members/:targetUserId/timeout',
+    "/workspaces/:workspaceId/members/:targetUserId/timeout",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
         .object({
           workspaceId: z.string().uuid(),
-          targetUserId: z.string().uuid()
+          targetUserId: z.string().uuid(),
         })
         .parse(request.params);
       const userId = actor(request);
@@ -260,53 +258,53 @@ export async function moderationRoutes(
         `UPDATE workspace_members
          SET muted_until=NULL
          WHERE workspace_id=$1 AND user_id=$2`,
-        [params.workspaceId, params.targetUserId]
+        [params.workspaceId, params.targetUserId],
       );
       await recordAudit({
         workspaceId: params.workspaceId,
         actorUserId: userId,
-        action: 'member.timeout.cleared',
-        target: { type: 'user', id: params.targetUserId }
+        action: "member.timeout.cleared",
+        target: { type: "user", id: params.targetUserId },
       });
       return { ok: true };
-    }
+    },
   );
 
   app.delete(
-    '/workspaces/:workspaceId/members/:targetUserId',
+    "/workspaces/:workspaceId/members/:targetUserId",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
         .object({
           workspaceId: z.string().uuid(),
-          targetUserId: z.string().uuid()
+          targetUserId: z.string().uuid(),
         })
         .parse(request.params);
       const userId = actor(request);
       await assertModerationPermission(userId, params.workspaceId);
 
       const workspace = await pool.query<{ owner_user_id: string }>(
-        'SELECT owner_user_id FROM workspaces WHERE id=$1',
-        [params.workspaceId]
+        "SELECT owner_user_id FROM workspaces WHERE id=$1",
+        [params.workspaceId],
       );
       if (workspace.rows[0]?.owner_user_id === params.targetUserId) {
         throw new AppError(
           409,
-          'OWNER_CANNOT_BE_KICKED',
-          'Workspace owner cannot be removed'
+          "OWNER_CANNOT_BE_KICKED",
+          "Workspace owner cannot be removed",
         );
       }
 
       const removed = await pool.query(
         `DELETE FROM workspace_members
          WHERE workspace_id=$1 AND user_id=$2`,
-        [params.workspaceId, params.targetUserId]
+        [params.workspaceId, params.targetUserId],
       );
       if (!removed.rowCount) {
         throw new AppError(
           404,
-          'WORKSPACE_MEMBER_NOT_FOUND',
-          'Workspace member not found'
+          "WORKSPACE_MEMBER_NOT_FOUND",
+          "Workspace member not found",
         );
       }
 
@@ -314,61 +312,59 @@ export async function moderationRoutes(
         `INSERT INTO moderation_actions (
           workspace_id,actor_user_id,target_user_id,action
         ) VALUES ($1,$2,$3,'member.kick')`,
-        [params.workspaceId, userId, params.targetUserId]
+        [params.workspaceId, userId, params.targetUserId],
       );
       await recordAudit({
         workspaceId: params.workspaceId,
         actorUserId: userId,
-        action: 'member.kick',
-        target: { type: 'user', id: params.targetUserId }
+        action: "member.kick",
+        target: { type: "user", id: params.targetUserId },
       });
       return { ok: true };
-    }
+    },
   );
 
   app.post(
-    '/workspaces/:workspaceId/bans/:targetUserId',
+    "/workspaces/:workspaceId/bans/:targetUserId",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
         .object({
           workspaceId: z.string().uuid(),
-          targetUserId: z.string().uuid()
+          targetUserId: z.string().uuid(),
         })
         .parse(request.params);
       const body = z
         .object({
           reason: z.string().trim().max(1000).optional(),
-          expiresAt: z.string().datetime().optional()
+          expiresAt: z.string().datetime().optional(),
         })
         .parse(request.body);
       const userId = actor(request);
       await assertModerationPermission(userId, params.workspaceId);
       await assertWorkspaceTargetMember(
         params.workspaceId,
-        params.targetUserId
+        params.targetUserId,
       );
 
       const workspace = await pool.query<{ owner_user_id: string }>(
-        'SELECT owner_user_id FROM workspaces WHERE id=$1',
-        [params.workspaceId]
+        "SELECT owner_user_id FROM workspaces WHERE id=$1",
+        [params.workspaceId],
       );
       if (workspace.rows[0]?.owner_user_id === params.targetUserId) {
         throw new AppError(
           409,
-          'OWNER_CANNOT_BE_BANNED',
-          'Workspace owner cannot be banned'
+          "OWNER_CANNOT_BE_BANNED",
+          "Workspace owner cannot be banned",
         );
       }
 
-      const expiresAt = body.expiresAt
-        ? new Date(body.expiresAt)
-        : null;
+      const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
       if (expiresAt && expiresAt <= new Date()) {
         throw new AppError(
           400,
-          'INVALID_BAN_EXPIRY',
-          'Ban expiry must be in the future'
+          "INVALID_BAN_EXPIRY",
+          "Ban expiry must be in the future",
         );
       }
 
@@ -389,12 +385,12 @@ export async function moderationRoutes(
             params.targetUserId,
             userId,
             body.reason ?? null,
-            expiresAt
-          ]
+            expiresAt,
+          ],
         );
         await client.query(
-          'DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2',
-          [params.workspaceId, params.targetUserId]
+          "DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2",
+          [params.workspaceId, params.targetUserId],
         );
         await client.query(
           `INSERT INTO moderation_actions (
@@ -405,34 +401,34 @@ export async function moderationRoutes(
             userId,
             params.targetUserId,
             JSON.stringify({ reason: body.reason ?? null }),
-            expiresAt
-          ]
+            expiresAt,
+          ],
         );
         await recordAudit({
           client,
           workspaceId: params.workspaceId,
           actorUserId: userId,
-          action: 'member.ban',
-          target: { type: 'user', id: params.targetUserId },
+          action: "member.ban",
+          target: { type: "user", id: params.targetUserId },
           metadata: {
             reason: body.reason ?? null,
-            expiresAt: expiresAt?.toISOString() ?? null
-          }
+            expiresAt: expiresAt?.toISOString() ?? null,
+          },
         });
       });
 
       return { ok: true };
-    }
+    },
   );
 
   app.delete(
-    '/workspaces/:workspaceId/bans/:targetUserId',
+    "/workspaces/:workspaceId/bans/:targetUserId",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
         .object({
           workspaceId: z.string().uuid(),
-          targetUserId: z.string().uuid()
+          targetUserId: z.string().uuid(),
         })
         .parse(request.params);
       const userId = actor(request);
@@ -442,20 +438,20 @@ export async function moderationRoutes(
         `UPDATE workspace_bans
          SET revoked_at=now()
          WHERE workspace_id=$1 AND user_id=$2 AND revoked_at IS NULL`,
-        [params.workspaceId, params.targetUserId]
+        [params.workspaceId, params.targetUserId],
       );
       await recordAudit({
         workspaceId: params.workspaceId,
         actorUserId: userId,
-        action: 'member.unban',
-        target: { type: 'user', id: params.targetUserId }
+        action: "member.unban",
+        target: { type: "user", id: params.targetUserId },
       });
       return { ok: true };
-    }
+    },
   );
 
   app.post(
-    '/channels/:channelId/lock',
+    "/channels/:channelId/lock",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
@@ -469,20 +465,20 @@ export async function moderationRoutes(
         `UPDATE channels
          SET locked_at=now(),locked_by=$2,updated_at=now()
          WHERE id=$1`,
-        [params.channelId, userId]
+        [params.channelId, userId],
       );
       await recordAudit({
         workspaceId,
         actorUserId: userId,
-        action: 'channel.lock',
-        target: { type: 'channel', id: params.channelId }
+        action: "channel.lock",
+        target: { type: "channel", id: params.channelId },
       });
       return { ok: true };
-    }
+    },
   );
 
   app.delete(
-    '/channels/:channelId/lock',
+    "/channels/:channelId/lock",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
@@ -496,20 +492,20 @@ export async function moderationRoutes(
         `UPDATE channels
          SET locked_at=NULL,locked_by=NULL,updated_at=now()
          WHERE id=$1`,
-        [params.channelId]
+        [params.channelId],
       );
       await recordAudit({
         workspaceId,
         actorUserId: userId,
-        action: 'channel.unlock',
-        target: { type: 'channel', id: params.channelId }
+        action: "channel.unlock",
+        target: { type: "channel", id: params.channelId },
       });
       return { ok: true };
-    }
+    },
   );
 
   app.get(
-    '/workspaces/:workspaceId/moderation/rules',
+    "/workspaces/:workspaceId/moderation/rules",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
@@ -526,20 +522,22 @@ export async function moderationRoutes(
           repeated_content_limit AS "repeatedContentLimit"
          FROM workspace_moderation_rules
          WHERE workspace_id=$1`,
-        [params.workspaceId]
+        [params.workspaceId],
       );
 
-      return result.rows[0] ?? {
-        maxMessagesPer10Seconds: 8,
-        maxMentionsPerMessage: 12,
-        repeatedContentWindowSeconds: 60,
-        repeatedContentLimit: 4
-      };
-    }
+      return (
+        result.rows[0] ?? {
+          maxMessagesPer10Seconds: 8,
+          maxMentionsPerMessage: 12,
+          repeatedContentWindowSeconds: 60,
+          repeatedContentLimit: 4,
+        }
+      );
+    },
   );
 
   app.put(
-    '/workspaces/:workspaceId/moderation/rules',
+    "/workspaces/:workspaceId/moderation/rules",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
@@ -550,7 +548,7 @@ export async function moderationRoutes(
           maxMessagesPer10Seconds: z.number().int().min(1).max(100),
           maxMentionsPerMessage: z.number().int().min(1).max(100),
           repeatedContentWindowSeconds: z.number().int().min(5).max(3600),
-          repeatedContentLimit: z.number().int().min(2).max(50)
+          repeatedContentLimit: z.number().int().min(2).max(50),
         })
         .parse(request.body);
       const userId = actor(request);
@@ -575,20 +573,20 @@ export async function moderationRoutes(
           body.maxMentionsPerMessage,
           body.repeatedContentWindowSeconds,
           body.repeatedContentLimit,
-          userId
-        ]
+          userId,
+        ],
       );
 
       await invalidateModerationRules(params.workspaceId);
       await recordAudit({
         workspaceId: params.workspaceId,
         actorUserId: userId,
-        action: 'moderation.rules.updated',
-        target: { type: 'workspace', id: params.workspaceId },
-        metadata: body
+        action: "moderation.rules.updated",
+        target: { type: "workspace", id: params.workspaceId },
+        metadata: body,
       });
 
       return { ok: true };
-    }
+    },
   );
 }

@@ -1,12 +1,12 @@
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   canAccessChannel,
-  canAccessConversation
-} from '../authorization/service.js';
-import { config } from '../config.js';
-import { pool } from '../db/index.js';
-import { AppError } from '../errors.js';
+  canAccessConversation,
+} from "../authorization/service.js";
+import { config } from "../config.js";
+import { pool } from "../db/index.js";
+import { AppError } from "../errors.js";
 
 export const fileS3 = new S3Client({
   region: config.S3_REGION,
@@ -14,8 +14,8 @@ export const fileS3 = new S3Client({
   forcePathStyle: config.S3_FORCE_PATH_STYLE,
   credentials: {
     accessKeyId: config.S3_ACCESS_KEY,
-    secretAccessKey: config.S3_SECRET_KEY
-  }
+    secretAccessKey: config.S3_SECRET_KEY,
+  },
 });
 
 export interface StoredFile {
@@ -39,16 +39,16 @@ export interface StoredFile {
 
 export async function fileForUser(
   fileId: string,
-  userId: string
+  userId: string,
 ): Promise<StoredFile> {
   const fileResult = await pool.query<StoredFile>(
-    'SELECT id,owner_user_id,storage_key,original_name,mime_type,detected_mime_type,size_bytes,width,height,duration_ms,thumbnail_key,preview_key,status,processing_error,completed_at,created_at FROM files WHERE id=$1',
-    [fileId]
+    "SELECT id,owner_user_id,storage_key,original_name,mime_type,detected_mime_type,size_bytes,width,height,duration_ms,thumbnail_key,preview_key,status,processing_error,completed_at,created_at FROM files WHERE id=$1",
+    [fileId],
   );
   const file = fileResult.rows[0];
 
   if (!file) {
-    throw new AppError(404, 'FILE_NOT_FOUND', 'File not found');
+    throw new AppError(404, "FILE_NOT_FOUND", "File not found");
   }
   if (file.owner_user_id === userId) return file;
 
@@ -56,8 +56,8 @@ export async function fileForUser(
     channel_id: string | null;
     conversation_id: string | null;
   }>(
-    'SELECT m.channel_id,m.conversation_id FROM message_attachments ma JOIN messages m ON m.id=ma.message_id WHERE ma.file_id=$1 AND m.deleted_at IS NULL',
-    [fileId]
+    "SELECT m.channel_id,m.conversation_id FROM message_attachments ma JOIN messages m ON m.id=ma.message_id WHERE ma.file_id=$1 AND m.deleted_at IS NULL",
+    [fileId],
   );
 
   for (const attachment of attachments.rows) {
@@ -69,48 +69,35 @@ export async function fileForUser(
     }
     if (
       attachment.conversation_id &&
-      (await canAccessConversation(
-        userId,
-        attachment.conversation_id
-      ))
+      (await canAccessConversation(userId, attachment.conversation_id))
     ) {
       return file;
     }
   }
 
-  throw new AppError(
-    403,
-    'FILE_ACCESS_DENIED',
-    'File access denied'
-  );
+  throw new AppError(403, "FILE_ACCESS_DENIED", "File access denied");
 }
 
-export async function createDownloadUrl(
-  file: StoredFile
-): Promise<string> {
+export async function createDownloadUrl(file: StoredFile): Promise<string> {
   const encodedName = encodeURIComponent(file.original_name);
   return getSignedUrl(
     fileS3,
     new GetObjectCommand({
       Bucket: config.S3_BUCKET,
       Key: file.storage_key,
-      ResponseContentType:
-        file.detected_mime_type ?? file.mime_type,
-      ResponseContentDisposition:
-        "attachment; filename*=UTF-8''" + encodedName
+      ResponseContentType: file.detected_mime_type ?? file.mime_type,
+      ResponseContentDisposition: "attachment; filename*=UTF-8''" + encodedName,
     }),
-    { expiresIn: 300 }
+    { expiresIn: 300 },
   );
 }
 
-export async function createThumbnailUrl(
-  file: StoredFile
-): Promise<string> {
+export async function createThumbnailUrl(file: StoredFile): Promise<string> {
   if (!file.thumbnail_key) {
     throw new AppError(
       404,
-      'THUMBNAIL_NOT_FOUND',
-      'Thumbnail is not available'
+      "THUMBNAIL_NOT_FOUND",
+      "Thumbnail is not available",
     );
   }
 
@@ -119,9 +106,9 @@ export async function createThumbnailUrl(
     new GetObjectCommand({
       Bucket: config.S3_BUCKET,
       Key: file.thumbnail_key,
-      ResponseContentType: 'image/webp',
-      ResponseContentDisposition: 'inline'
+      ResponseContentType: "image/webp",
+      ResponseContentDisposition: "inline",
     }),
-    { expiresIn: 300 }
+    { expiresIn: 300 },
   );
 }

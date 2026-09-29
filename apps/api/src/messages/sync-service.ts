@@ -1,25 +1,22 @@
-import { pool } from '../db/index.js';
-import {
-  mapMessageSyncRow,
-  type MessageSyncRow
-} from './sync-model.js';
+import { pool } from "../db/index.js";
+import { mapMessageSyncRow, type MessageSyncRow } from "./sync-model.js";
 
 export async function latestMessageSyncCursor(input: {
-  roomKind: 'channel' | 'conversation';
+  roomKind: "channel" | "conversation";
   roomId: string;
 }) {
   const result = await pool.query<{ cursor: string }>(
     `SELECT COALESCE(MAX(id),0)::text AS cursor
      FROM message_sync_events
      WHERE room_kind=$1 AND room_id=$2`,
-    [input.roomKind, input.roomId]
+    [input.roomKind, input.roomId],
   );
 
-  return result.rows[0]?.cursor ?? '0';
+  return result.rows[0]?.cursor ?? "0";
 }
 
 export async function syncMessageChanges(input: {
-  roomKind: 'channel' | 'conversation';
+  roomKind: "channel" | "conversation";
   roomId: string;
   userId: string;
   after: string;
@@ -81,13 +78,7 @@ export async function syncMessageChanges(input: {
       AND se.id>$3::bigint
     ORDER BY se.id ASC
     LIMIT $5`,
-    [
-      input.roomKind,
-      input.roomId,
-      input.after,
-      input.userId,
-      input.limit + 1
-    ]
+    [input.roomKind, input.roomId, input.after, input.userId, input.limit + 1],
   );
 
   const hasMore = result.rows.length > input.limit;
@@ -99,6 +90,6 @@ export async function syncMessageChanges(input: {
       .map((row) => mapMessageSyncRow(row, input.userId))
       .filter((change) => change !== null),
     nextAfter: last?.sync_cursor ?? input.after,
-    hasMore
+    hasMore,
   };
 }

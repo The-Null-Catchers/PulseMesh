@@ -1,8 +1,8 @@
-import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
-import { pool, withTransaction } from '../db/index.js';
-import { AppError } from '../errors.js';
-import { canAccessConversation } from '../authorization/service.js';
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { pool, withTransaction } from "../db/index.js";
+import { AppError } from "../errors.js";
+import { canAccessConversation } from "../authorization/service.js";
 
 const encodedKey = z
   .string()
@@ -16,17 +16,17 @@ const bundleSchema = z.object({
   signedPreKey: z.object({
     id: z.number().int().nonnegative(),
     publicKey: encodedKey,
-    signature: encodedKey
+    signature: encodedKey,
   }),
   oneTimePreKeys: z
     .array(
       z.object({
         id: z.number().int().nonnegative(),
-        publicKey: encodedKey
-      })
+        publicKey: encodedKey,
+      }),
     )
     .max(100)
-    .default([])
+    .default([]),
 });
 
 function identity(request: {
@@ -35,56 +35,48 @@ function identity(request: {
   const userId = request.auth?.userId;
   const sessionId = request.auth?.sessionId;
   if (!userId || !sessionId) {
-    throw new Error('Missing authenticated identity');
+    throw new Error("Missing authenticated identity");
   }
   return { userId, sessionId };
 }
 
-async function directMembers(
-  conversationId: string
-): Promise<string[]> {
+async function directMembers(conversationId: string): Promise<string[]> {
   const conversation = await pool.query<{ kind: string }>(
-    'SELECT kind FROM conversations WHERE id=$1',
-    [conversationId]
+    "SELECT kind FROM conversations WHERE id=$1",
+    [conversationId],
   );
   const row = conversation.rows[0];
   if (!row) {
-    throw new AppError(
-      404,
-      'CONVERSATION_NOT_FOUND',
-      'Conversation not found'
-    );
+    throw new AppError(404, "CONVERSATION_NOT_FOUND", "Conversation not found");
   }
-  if (row.kind !== 'direct') {
+  if (row.kind !== "direct") {
     throw new AppError(
       409,
-      'E2EE_DIRECT_ONLY',
-      'Initial E2EE is available only for direct conversations'
+      "E2EE_DIRECT_ONLY",
+      "Initial E2EE is available only for direct conversations",
     );
   }
 
   const members = await pool.query<{ user_id: string }>(
-    'SELECT user_id FROM conversation_members WHERE conversation_id=$1 ORDER BY user_id',
-    [conversationId]
+    "SELECT user_id FROM conversation_members WHERE conversation_id=$1 ORDER BY user_id",
+    [conversationId],
   );
   if (members.rows.length !== 2) {
     throw new AppError(
       409,
-      'E2EE_DIRECT_MEMBER_COUNT',
-      'Encrypted direct conversations require exactly two members'
+      "E2EE_DIRECT_MEMBER_COUNT",
+      "Encrypted direct conversations require exactly two members",
     );
   }
   return members.rows.map((member) => member.user_id);
 }
 
-export async function e2eeRoutes(
-  app: FastifyInstance
-): Promise<void> {
+export async function e2eeRoutes(app: FastifyInstance): Promise<void> {
   app.put(
-    '/e2ee/device-bundle',
+    "/e2ee/device-bundle",
     {
       preHandler: app.authenticate,
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } }
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
     },
     async (request) => {
       const current = identity(request);
@@ -112,8 +104,8 @@ export async function e2eeRoutes(
             body.identityKeyPublic,
             body.signedPreKey.id,
             body.signedPreKey.publicKey,
-            body.signedPreKey.signature
-          ]
+            body.signedPreKey.signature,
+          ],
         );
 
         for (const preKey of body.oneTimePreKeys) {
@@ -122,34 +114,30 @@ export async function e2eeRoutes(
               session_id,key_id,public_key
             ) VALUES ($1,$2,$3)
             ON CONFLICT (session_id,key_id) DO NOTHING`,
-            [
-              current.sessionId,
-              preKey.id,
-              preKey.publicKey
-            ]
+            [current.sessionId, preKey.id, preKey.publicKey],
           );
         }
       });
 
       return { ok: true };
-    }
+    },
   );
 
   app.delete(
-    '/e2ee/device-bundle',
+    "/e2ee/device-bundle",
     { preHandler: app.authenticate },
     async (request) => {
       const current = identity(request);
       await pool.query(
-        'DELETE FROM e2ee_device_bundles WHERE session_id=$1 AND user_id=$2',
-        [current.sessionId, current.userId]
+        "DELETE FROM e2ee_device_bundles WHERE session_id=$1 AND user_id=$2",
+        [current.sessionId, current.userId],
       );
       return { ok: true };
-    }
+    },
   );
 
   app.post(
-    '/conversations/:conversationId/e2ee/enable',
+    "/conversations/:conversationId/e2ee/enable",
     { preHandler: app.authenticate },
     async (request) => {
       const params = z
@@ -158,15 +146,12 @@ export async function e2eeRoutes(
       const current = identity(request);
 
       if (
-        !(await canAccessConversation(
-          current.userId,
-          params.conversationId
-        ))
+        !(await canAccessConversation(current.userId, params.conversationId))
       ) {
         throw new AppError(
           403,
-          'CONVERSATION_ACCESS_DENIED',
-          'Conversation access denied'
+          "CONVERSATION_ACCESS_DENIED",
+          "Conversation access denied",
         );
       }
 
@@ -178,14 +163,14 @@ export async function e2eeRoutes(
          WHERE b.user_id=ANY($1::uuid[])
            AND s.revoked_at IS NULL
            AND s.expires_at>now()`,
-        [members]
+        [members],
       );
 
       if (bundleCoverage.rows.length !== members.length) {
         throw new AppError(
           409,
-          'E2EE_KEYS_INCOMPLETE',
-          'Every participant must publish an active E2EE device bundle first'
+          "E2EE_KEYS_INCOMPLETE",
+          "Every participant must publish an active E2EE device bundle first",
         );
       }
 
@@ -193,18 +178,18 @@ export async function e2eeRoutes(
         `UPDATE conversations
          SET encryption_mode='e2ee_v1',updated_at=now()
          WHERE id=$1`,
-        [params.conversationId]
+        [params.conversationId],
       );
 
-      return { ok: true, encryptionMode: 'e2ee_v1' };
-    }
+      return { ok: true, encryptionMode: "e2ee_v1" };
+    },
   );
 
   app.post(
-    '/conversations/:conversationId/e2ee/key-bundles',
+    "/conversations/:conversationId/e2ee/key-bundles",
     {
       preHandler: app.authenticate,
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
     },
     async (request) => {
       const params = z
@@ -213,27 +198,22 @@ export async function e2eeRoutes(
       const current = identity(request);
 
       if (
-        !(await canAccessConversation(
-          current.userId,
-          params.conversationId
-        ))
+        !(await canAccessConversation(current.userId, params.conversationId))
       ) {
         throw new AppError(
           403,
-          'CONVERSATION_ACCESS_DENIED',
-          'Conversation access denied'
+          "CONVERSATION_ACCESS_DENIED",
+          "Conversation access denied",
         );
       }
 
       const members = await directMembers(params.conversationId);
-      const targetUserId = members.find(
-        (member) => member !== current.userId
-      );
+      const targetUserId = members.find((member) => member !== current.userId);
       if (!targetUserId) {
         throw new AppError(
           409,
-          'E2EE_PEER_NOT_FOUND',
-          'Encrypted peer not found'
+          "E2EE_PEER_NOT_FOUND",
+          "Encrypted peer not found",
         );
       }
 
@@ -257,7 +237,7 @@ export async function e2eeRoutes(
              AND s.revoked_at IS NULL
              AND s.expires_at>now()
            ORDER BY b.created_at,b.session_id`,
-          [targetUserId]
+          [targetUserId],
         );
 
         const items = [];
@@ -280,7 +260,7 @@ export async function e2eeRoutes(
             WHERE p.session_id=selected.session_id
               AND p.key_id=selected.key_id
             RETURNING p.key_id,p.public_key`,
-            [bundle.session_id]
+            [bundle.session_id],
           );
 
           const oneTime = preKey.rows[0];
@@ -291,24 +271,24 @@ export async function e2eeRoutes(
             signedPreKey: {
               id: bundle.signed_pre_key_id,
               publicKey: bundle.signed_pre_key_public,
-              signature: bundle.signed_pre_key_signature
+              signature: bundle.signed_pre_key_signature,
             },
             oneTimePreKey: oneTime
               ? {
                   id: oneTime.key_id,
-                  publicKey: oneTime.public_key
+                  publicKey: oneTime.public_key,
                 }
               : null,
-            revision: bundle.revision
+            revision: bundle.revision,
           });
         }
 
         return {
           userId: targetUserId,
-          protocol: 'libsignal-v1',
-          devices: items
+          protocol: "libsignal-v1",
+          devices: items,
         };
       });
-    }
+    },
   );
 }

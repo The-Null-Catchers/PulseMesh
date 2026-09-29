@@ -1,4 +1,4 @@
-import type { WebRtcSignal } from '@pulsemesh/realtime';
+import type { WebRtcSignal } from "@pulsemesh/realtime";
 
 export interface MediaPeerState {
   participantId: string;
@@ -7,14 +7,8 @@ export interface MediaPeerState {
 
 export interface BrowserMeshMediaOptions {
   iceServers: RTCIceServer[];
-  sendSignal: (
-    targetParticipantId: string,
-    signal: WebRtcSignal
-  ) => void;
-  onRemoteStream?: (
-    participantId: string,
-    stream: MediaStream
-  ) => void;
+  sendSignal: (targetParticipantId: string, signal: WebRtcSignal) => void;
+  onRemoteStream?: (participantId: string, stream: MediaStream) => void;
   onPeerState?: (state: MediaPeerState) => void;
   onScreenShareEnded?: () => void;
 }
@@ -24,14 +18,8 @@ export interface MediaSessionAdapter {
   startCamera(deviceId?: string): Promise<MediaStream>;
   startScreenShare(): Promise<MediaStream>;
   stopScreenShare(): Promise<void>;
-  connectPeer(
-    participantId: string,
-    initiator: boolean
-  ): Promise<void>;
-  handleSignal(
-    fromParticipantId: string,
-    signal: WebRtcSignal
-  ): Promise<void>;
+  connectPeer(participantId: string, initiator: boolean): Promise<void>;
+  handleSignal(fromParticipantId: string, signal: WebRtcSignal): Promise<void>;
   setMuted(muted: boolean): void;
   setDeafened(deafened: boolean): void;
   setCameraEnabled(enabled: boolean): void;
@@ -40,40 +28,25 @@ export interface MediaSessionAdapter {
   leave(): void;
 }
 
-export class BrowserMeshMediaSession
-  implements MediaSessionAdapter
-{
+export class BrowserMeshMediaSession implements MediaSessionAdapter {
   private audioTrack: MediaStreamTrack | null = null;
   private cameraTrack: MediaStreamTrack | null = null;
   private screenTrack: MediaStreamTrack | null = null;
-  private readonly peers = new Map<
-    string,
-    RTCPeerConnection
-  >();
-  private readonly remoteStreams = new Map<
-    string,
-    MediaStream
-  >();
+  private readonly peers = new Map<string, RTCPeerConnection>();
+  private readonly remoteStreams = new Map<string, MediaStream>();
   private deafened = false;
 
-  constructor(
-    private readonly options: BrowserMeshMediaOptions
-  ) {}
+  constructor(private readonly options: BrowserMeshMediaOptions) {}
 
-  async startAudio(
-    deviceId?: string
-  ): Promise<MediaStream> {
-    const stream =
-      await navigator.mediaDevices.getUserMedia({
-        audio: deviceId
-          ? { deviceId: { exact: deviceId } }
-          : true,
-        video: false
-      });
+  async startAudio(deviceId?: string): Promise<MediaStream> {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      video: false,
+    });
     const track = stream.getAudioTracks()[0];
     if (!track) {
       stream.getTracks().forEach((item) => item.stop());
-      throw new Error('Microphone did not produce an audio track');
+      throw new Error("Microphone did not produce an audio track");
     }
 
     const wasMuted = this.audioTrack?.enabled === false;
@@ -81,100 +54,74 @@ export class BrowserMeshMediaSession
     this.audioTrack = track;
     track.enabled = !wasMuted;
 
-    await this.replaceTrackForAllPeers(
-      'audio',
-      track,
-      stream
-    );
+    await this.replaceTrackForAllPeers("audio", track, stream);
     return stream;
   }
 
-  async startCamera(
-    deviceId?: string
-  ): Promise<MediaStream> {
-    const stream =
-      await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: deviceId
-          ? { deviceId: { exact: deviceId } }
-          : true
-      });
+  async startCamera(deviceId?: string): Promise<MediaStream> {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: deviceId ? { deviceId: { exact: deviceId } } : true,
+    });
     const track = stream.getVideoTracks()[0];
     if (!track) {
       stream.getTracks().forEach((item) => item.stop());
-      throw new Error('Camera did not produce a video track');
+      throw new Error("Camera did not produce a video track");
     }
 
-    const wasDisabled =
-      this.cameraTrack?.enabled === false;
+    const wasDisabled = this.cameraTrack?.enabled === false;
     this.cameraTrack?.stop();
     this.cameraTrack = track;
     track.enabled = !wasDisabled;
 
     if (!this.screenTrack) {
-      await this.replaceTrackForAllPeers(
-        'video',
-        track,
-        stream
-      );
+      await this.replaceTrackForAllPeers("video", track, stream);
     }
 
     return stream;
   }
 
   async startScreenShare(): Promise<MediaStream> {
-    const stream =
-      await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: false
-      });
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: false,
+    });
     const track = stream.getVideoTracks()[0];
     if (!track) {
       stream.getTracks().forEach((item) => item.stop());
-      throw new Error(
-        'Screen capture did not produce a video track'
-      );
+      throw new Error("Screen capture did not produce a video track");
     }
 
     this.screenTrack?.stop();
     this.screenTrack = track;
     track.addEventListener(
-      'ended',
+      "ended",
       () => {
         if (this.screenTrack !== track) return;
         void this.stopScreenShare().finally(() => {
           this.options.onScreenShareEnded?.();
         });
       },
-      { once: true }
+      { once: true },
     );
 
-    await this.replaceTrackForAllPeers(
-      'video',
-      track,
-      stream
-    );
+    await this.replaceTrackForAllPeers("video", track, stream);
     return stream;
   }
 
   async stopScreenShare(): Promise<void> {
     const track = this.screenTrack;
     this.screenTrack = null;
-    if (track?.readyState !== 'ended') track?.stop();
+    if (track?.readyState !== "ended") track?.stop();
 
     await this.replaceTrackForAllPeers(
-      'video',
+      "video",
       this.cameraTrack,
-      this.cameraTrack
-        ? new MediaStream([this.cameraTrack])
-        : null
+      this.cameraTrack ? new MediaStream([this.cameraTrack]) : null,
     );
   }
 
-  async connectPeer(
-    participantId: string,
-    initiator: boolean
-  ): Promise<void> {
+  async connectPeer(participantId: string, initiator: boolean): Promise<void> {
     const peer = this.ensurePeer(participantId);
     if (!initiator) return;
 
@@ -183,38 +130,38 @@ export class BrowserMeshMediaSession
 
     if (offer.sdp) {
       this.options.sendSignal(participantId, {
-        kind: 'offer',
-        sdp: offer.sdp
+        kind: "offer",
+        sdp: offer.sdp,
       });
     }
   }
 
   async handleSignal(
     fromParticipantId: string,
-    signal: WebRtcSignal
+    signal: WebRtcSignal,
   ): Promise<void> {
     const peer = this.ensurePeer(fromParticipantId);
 
-    if (signal.kind === 'offer') {
+    if (signal.kind === "offer") {
       await peer.setRemoteDescription({
-        type: 'offer',
-        sdp: signal.sdp
+        type: "offer",
+        sdp: signal.sdp,
       });
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
       if (answer.sdp) {
         this.options.sendSignal(fromParticipantId, {
-          kind: 'answer',
-          sdp: answer.sdp
+          kind: "answer",
+          sdp: answer.sdp,
         });
       }
       return;
     }
 
-    if (signal.kind === 'answer') {
+    if (signal.kind === "answer") {
       await peer.setRemoteDescription({
-        type: 'answer',
-        sdp: signal.sdp
+        type: "answer",
+        sdp: signal.sdp,
       });
       return;
     }
@@ -225,10 +172,9 @@ export class BrowserMeshMediaSession
       sdpMLineIndex: signal.sdpMLineIndex,
       ...(signal.usernameFragment
         ? {
-            usernameFragment:
-              signal.usernameFragment
+            usernameFragment: signal.usernameFragment,
           }
-        : {})
+        : {}),
     });
   }
 
@@ -253,15 +199,11 @@ export class BrowserMeshMediaSession
     }
   }
 
-  async selectMicrophone(
-    deviceId: string
-  ): Promise<void> {
+  async selectMicrophone(deviceId: string): Promise<void> {
     await this.startAudio(deviceId);
   }
 
-  async selectCamera(
-    deviceId: string
-  ): Promise<void> {
+  async selectCamera(deviceId: string): Promise<void> {
     await this.startCamera(deviceId);
   }
 
@@ -272,9 +214,7 @@ export class BrowserMeshMediaSession
     this.peers.clear();
 
     for (const stream of this.remoteStreams.values()) {
-      stream.getTracks().forEach((track) =>
-        track.stop()
-      );
+      stream.getTracks().forEach((track) => track.stop());
     }
     this.remoteStreams.clear();
 
@@ -290,66 +230,52 @@ export class BrowserMeshMediaSession
     return this.screenTrack ?? this.cameraTrack;
   }
 
-  private ensurePeer(
-    participantId: string
-  ): RTCPeerConnection {
+  private ensurePeer(participantId: string): RTCPeerConnection {
     const existing = this.peers.get(participantId);
     if (existing) return existing;
 
     const peer = new RTCPeerConnection({
-      iceServers: this.options.iceServers
+      iceServers: this.options.iceServers,
     });
 
     if (this.audioTrack) {
-      peer.addTrack(
-        this.audioTrack,
-        new MediaStream([this.audioTrack])
-      );
+      peer.addTrack(this.audioTrack, new MediaStream([this.audioTrack]));
     }
 
     const videoTrack = this.activeVideoTrack();
     if (videoTrack) {
-      peer.addTrack(
-        videoTrack,
-        new MediaStream([videoTrack])
-      );
+      peer.addTrack(videoTrack, new MediaStream([videoTrack]));
     }
 
     peer.onicecandidate = (event) => {
       if (!event.candidate) return;
       const candidate = event.candidate.toJSON();
       this.options.sendSignal(participantId, {
-        kind: 'ice',
-        candidate: candidate.candidate ?? '',
+        kind: "ice",
+        candidate: candidate.candidate ?? "",
         sdpMid: candidate.sdpMid ?? null,
-        sdpMLineIndex:
-          candidate.sdpMLineIndex ?? null,
+        sdpMLineIndex: candidate.sdpMLineIndex ?? null,
         ...(candidate.usernameFragment
           ? {
-              usernameFragment:
-                candidate.usernameFragment
+              usernameFragment: candidate.usernameFragment,
             }
-          : {})
+          : {}),
       });
     };
 
     peer.ontrack = (event) => {
-      const stream =
-        event.streams[0] ?? new MediaStream([event.track]);
+      const stream = event.streams[0] ?? new MediaStream([event.track]);
       this.remoteStreams.set(participantId, stream);
       stream.getAudioTracks().forEach((track) => {
         track.enabled = !this.deafened;
       });
-      this.options.onRemoteStream?.(
-        participantId,
-        stream
-      );
+      this.options.onRemoteStream?.(participantId, stream);
     };
 
     peer.onconnectionstatechange = () => {
       this.options.onPeerState?.({
         participantId,
-        connectionState: peer.connectionState
+        connectionState: peer.connectionState,
       });
     };
 
@@ -358,9 +284,9 @@ export class BrowserMeshMediaSession
   }
 
   private async replaceTrackForAllPeers(
-    kind: 'audio' | 'video',
+    kind: "audio" | "video",
     track: MediaStreamTrack | null,
-    stream: MediaStream | null
+    stream: MediaStream | null,
   ): Promise<void> {
     for (const peer of this.peers.values()) {
       const sender = peer
@@ -368,7 +294,7 @@ export class BrowserMeshMediaSession
         .find(
           (candidate) =>
             candidate.track?.kind === kind ||
-            (!candidate.track && kind === 'video')
+            (!candidate.track && kind === "video"),
         );
 
       if (sender) {

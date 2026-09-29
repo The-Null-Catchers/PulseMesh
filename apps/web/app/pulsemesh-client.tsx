@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
 import {
   QueryClient,
   QueryClientProvider,
   useMutation,
   useQuery,
-  useQueryClient
-} from '@tanstack/react-query';
-import { BrowserMeshMediaSession } from '@pulsemesh/sdk';
+  useQueryClient,
+} from "@tanstack/react-query";
+import { BrowserMeshMediaSession } from "@pulsemesh/sdk";
 import {
   Bell,
   Bookmark,
@@ -41,21 +41,13 @@ import {
   X,
   Volume2,
   Wifi,
-  WifiOff
-} from 'lucide-react';
-import {
-  FormEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState
-} from 'react';
-import { tokenExpiresAt, tokenSubject } from '../lib/session';
+  WifiOff,
+} from "lucide-react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { tokenExpiresAt, tokenSubject } from "../lib/session";
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-const WS_URL =
-  process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:4000/realtime';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:4000/realtime";
 
 type ApiError = {
   error?: { code?: string; message?: string; requestId?: string };
@@ -74,7 +66,7 @@ type Channel = {
   id: string;
   name: string;
   topic: string | null;
-  kind: 'text' | 'voice';
+  kind: "text" | "voice";
   visibility: string;
   position: number;
 };
@@ -98,7 +90,7 @@ type ActiveCall = {
   channelId: string | null;
   conversationId: string | null;
   createdBy: string;
-  kind: 'voice' | 'video';
+  kind: "voice" | "video";
   status: string;
   provider: string;
   startedAt: string;
@@ -111,7 +103,7 @@ type PresenceMember = {
   username: string;
   displayName: string;
   avatarUrl: string | null;
-  status: 'online' | 'idle' | 'do-not-disturb' | 'offline';
+  status: "online" | "idle" | "do-not-disturb" | "offline";
   customText: string | null;
   lastSeenAt: string | null;
   connectedDevices: number;
@@ -134,10 +126,10 @@ type ConversationMember = {
 
 type Conversation = {
   id: string;
-  kind: 'direct' | 'group';
+  kind: "direct" | "group";
   name: string | null;
   avatar_url: string | null;
-  encryption_mode: 'none' | 'e2ee_v1';
+  encryption_mode: "none" | "e2ee_v1";
   members: ConversationMember[];
 };
 
@@ -157,7 +149,7 @@ type UploadItem = {
   fileId: string | null;
   file: File;
   name: string;
-  status: 'uploading' | 'processing' | 'ready' | 'failed' | 'cancelled';
+  status: "uploading" | "processing" | "ready" | "failed" | "cancelled";
   progress: number;
   error: string | null;
 };
@@ -182,7 +174,7 @@ type Message = {
   channelId: string | null;
   conversationId: string | null;
   body: string;
-  encryptionVersion?: 'libsignal-v1' | null;
+  encryptionVersion?: "libsignal-v1" | null;
   encryptedPayload?: string | null;
   createdAt: string;
   editedAt: string | null;
@@ -240,19 +232,17 @@ type Page<T> = { items: T[]; nextCursor: string | null };
 async function request<T>(
   path: string,
   accessToken?: string | null,
-  init: RequestInit = {}
+  init: RequestInit = {},
 ): Promise<T> {
   const response = await fetch(API_URL + path, {
     ...init,
-    credentials: 'include',
+    credentials: "include",
     headers: {
-      'content-type': 'application/json',
-      'x-pulsemesh-client': 'web',
-      ...(accessToken
-        ? { authorization: 'Bearer ' + accessToken }
-        : {}),
-      ...init.headers
-    }
+      "content-type": "application/json",
+      "x-pulsemesh-client": "web",
+      ...(accessToken ? { authorization: "Bearer " + accessToken } : {}),
+      ...init.headers,
+    },
   });
 
   if (!response.ok) {
@@ -263,8 +253,7 @@ async function request<T>(
       // Keep the normalized fallback below.
     }
     throw new Error(
-      body.error?.message ??
-        `Request failed with status ${response.status}`
+      body.error?.message ?? `Request failed with status ${response.status}`,
     );
   }
 
@@ -273,7 +262,7 @@ async function request<T>(
 
 function RemoteMedia({
   stream,
-  video
+  video,
 }: {
   stream: MediaStream;
   video: boolean;
@@ -309,40 +298,40 @@ function initials(name: string) {
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
-    .join('');
+    .join("");
 }
 
 function AuthScreen({
-  onAuthenticated
+  onAuthenticated,
 }: {
   onAuthenticated: (token: string) => void;
 }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [error, setError] = useState<string | null>(null);
 
   const auth = useMutation({
     mutationFn: async (form: FormData) => {
       const payload =
-        mode === 'login'
+        mode === "login"
           ? {
-              email: String(form.get('email') ?? ''),
-              password: String(form.get('password') ?? ''),
-              device: 'PulseMesh Web',
-              browser: navigator.userAgent.slice(0, 100)
+              email: String(form.get("email") ?? ""),
+              password: String(form.get("password") ?? ""),
+              device: "PulseMesh Web",
+              browser: navigator.userAgent.slice(0, 100),
             }
           : {
-              email: String(form.get('email') ?? ''),
-              password: String(form.get('password') ?? ''),
-              username: String(form.get('username') ?? ''),
-              displayName: String(form.get('displayName') ?? ''),
-              device: 'PulseMesh Web',
-              browser: navigator.userAgent.slice(0, 100)
+              email: String(form.get("email") ?? ""),
+              password: String(form.get("password") ?? ""),
+              username: String(form.get("username") ?? ""),
+              displayName: String(form.get("displayName") ?? ""),
+              device: "PulseMesh Web",
+              browser: navigator.userAgent.slice(0, 100),
             };
 
       return request<{ accessToken: string }>(
-        mode === 'login' ? '/auth/login' : '/auth/register',
+        mode === "login" ? "/auth/login" : "/auth/register",
         null,
-        { method: 'POST', body: JSON.stringify(payload) }
+        { method: "POST", body: JSON.stringify(payload) },
       );
     },
     onSuccess: ({ accessToken }) => {
@@ -351,9 +340,9 @@ function AuthScreen({
     },
     onError: (value) => {
       setError(
-        value instanceof Error ? value.message : 'Authentication failed'
+        value instanceof Error ? value.message : "Authentication failed",
       );
-    }
+    },
   });
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -377,8 +366,8 @@ function AuthScreen({
               Realtime collaboration without losing engineering discipline.
             </h1>
             <p className="mt-5 max-w-xl text-sm leading-7 text-slate-400">
-              Channels, direct messaging, presence, media sessions and
-              offline recovery on one production-oriented realtime core.
+              Channels, direct messaging, presence, media sessions and offline
+              recovery on one production-oriented realtime core.
             </p>
           </div>
           <div className="flex gap-5 text-xs text-slate-500">
@@ -398,7 +387,7 @@ function AuthScreen({
             Welcome to PulseMesh
           </p>
           <h2 className="mt-2 text-2xl font-semibold">
-            {mode === 'login' ? 'Sign in' : 'Create your account'}
+            {mode === "login" ? "Sign in" : "Create your account"}
           </h2>
           <p className="mt-2 text-sm text-slate-500">
             Your refresh session is kept in an HttpOnly cookie. Access tokens
@@ -406,7 +395,7 @@ function AuthScreen({
           </p>
 
           <div className="mt-7 grid grid-cols-2 rounded-2xl border border-white/8 bg-white/[0.025] p-1">
-            {(['login', 'register'] as const).map((item) => (
+            {(["login", "register"] as const).map((item) => (
               <button
                 key={item}
                 type="button"
@@ -415,19 +404,19 @@ function AuthScreen({
                   setError(null);
                 }}
                 className={
-                  'rounded-xl px-3 py-2 text-sm transition ' +
+                  "rounded-xl px-3 py-2 text-sm transition " +
                   (mode === item
-                    ? 'bg-white/[0.08] text-white'
-                    : 'text-slate-500 hover:text-slate-300')
+                    ? "bg-white/[0.08] text-white"
+                    : "text-slate-500 hover:text-slate-300")
                 }
               >
-                {item === 'login' ? 'Sign in' : 'Register'}
+                {item === "login" ? "Sign in" : "Register"}
               </button>
             ))}
           </div>
 
           <form className="mt-6 space-y-4" onSubmit={submit}>
-            {mode === 'register' && (
+            {mode === "register" && (
               <>
                 <label className="block">
                   <span className="mb-1.5 block text-xs text-slate-400">
@@ -458,9 +447,7 @@ function AuthScreen({
               </>
             )}
             <label className="block">
-              <span className="mb-1.5 block text-xs text-slate-400">
-                Email
-              </span>
+              <span className="mb-1.5 block text-xs text-slate-400">Email</span>
               <input
                 required
                 type="email"
@@ -481,9 +468,7 @@ function AuthScreen({
                 minLength={12}
                 maxLength={128}
                 autoComplete={
-                  mode === 'login'
-                    ? 'current-password'
-                    : 'new-password'
+                  mode === "login" ? "current-password" : "new-password"
                 }
                 className="w-full rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 outline-none transition focus:border-[#68e0cf]/50"
                 placeholder="At least 12 characters"
@@ -500,22 +485,19 @@ function AuthScreen({
               disabled={auth.isPending}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#68e0cf] px-4 py-3 font-semibold text-[#061013] transition hover:brightness-105 disabled:opacity-60"
             >
-              {auth.isPending && (
-                <Loader2 className="size-4 animate-spin" />
-              )}
-              {mode === 'login' ? 'Sign in' : 'Create account'}
+              {auth.isPending && <Loader2 className="size-4 animate-spin" />}
+              {mode === "login" ? "Sign in" : "Create account"}
             </button>
           </form>
         </section>
       </div>
-
     </main>
   );
 }
 
 function WorkspaceApp({
   token,
-  onLoggedOut
+  onLoggedOut,
 }: {
   token: string;
   onLoggedOut: () => void;
@@ -524,18 +506,20 @@ function WorkspaceApp({
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [channelId, setChannelId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [composer, setComposer] = useState('');
+  const [composer, setComposer] = useState("");
   const [newConversationOpen, setNewConversationOpen] = useState(false);
-  const [userSearch, setUserSearch] = useState('');
+  const [userSearch, setUserSearch] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
-  const [groupName, setGroupName] = useState('');
+  const [groupName, setGroupName] = useState("");
   const [activeThread, setActiveThread] = useState<Message | null>(null);
-  const [threadComposer, setThreadComposer] = useState('');
+  const [threadComposer, setThreadComposer] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-  const [editBody, setEditBody] = useState('');
-  const [messageActionError, setMessageActionError] = useState<string | null>(null);
+  const [editBody, setEditBody] = useState("");
+  const [messageActionError, setMessageActionError] = useState<string | null>(
+    null,
+  );
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
@@ -545,11 +529,15 @@ function WorkspaceApp({
   const [deafened, setDeafened] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
-  const [localVideoStream, setLocalVideoStream] = useState<MediaStream | null>(null);
-  const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
+  const [localVideoStream, setLocalVideoStream] = useState<MediaStream | null>(
+    null,
+  );
+  const [remoteStreams, setRemoteStreams] = useState<
+    Record<string, MediaStream>
+  >({});
   const [socketState, setSocketState] = useState<
-    'connecting' | 'ready' | 'reconnecting'
-  >('connecting');
+    "connecting" | "ready" | "reconnecting"
+  >("connecting");
   const [typing, setTyping] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const mediaSessionRef = useRef<BrowserMeshMediaSession | null>(null);
@@ -563,24 +551,23 @@ function WorkspaceApp({
   const lastReadRef = useRef<Record<string, string>>({});
 
   const workspaces = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: () =>
-      request<{ items: Workspace[] }>('/workspaces', token)
+    queryKey: ["workspaces"],
+    queryFn: () => request<{ items: Workspace[] }>("/workspaces", token),
   });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setSearchOpen(true);
       }
-      if (event.key === 'Escape') {
+      if (event.key === "Escape") {
         setSearchOpen(false);
         setNotificationsOpen(false);
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   useEffect(() => {
@@ -589,67 +576,62 @@ function WorkspaceApp({
   }, [workspaceId, workspaces.data]);
 
   const channels = useQuery({
-    queryKey: ['channels', workspaceId],
+    queryKey: ["channels", workspaceId],
     enabled: Boolean(workspaceId),
     queryFn: () =>
       request<{ items: Channel[] }>(
         `/workspaces/${workspaceId}/channels`,
-        token
-      )
+        token,
+      ),
   });
 
   const conversations = useQuery({
-    queryKey: ['conversations'],
-    queryFn: () =>
-      request<{ items: Conversation[] }>('/conversations', token)
+    queryKey: ["conversations"],
+    queryFn: () => request<{ items: Conversation[] }>("/conversations", token),
   });
 
   const userSearchResults = useQuery({
-    queryKey: ['user-search', userSearch],
+    queryKey: ["user-search", userSearch],
     enabled: newConversationOpen && userSearch.trim().length >= 2,
     queryFn: () =>
       request<{ users: SearchUser[] }>(
         `/search?q=${encodeURIComponent(userSearch.trim())}&limit=10`,
-        token
-      )
+        token,
+      ),
   });
 
   const createConversation = useMutation({
     mutationFn: async () => {
       if (!selectedMemberIds.length) {
-        throw new Error('Choose at least one person');
+        throw new Error("Choose at least one person");
       }
-      const kind = selectedMemberIds.length === 1 ? 'direct' : 'group';
-      return request<{ id: string }>('/conversations', token, {
-        method: 'POST',
+      const kind = selectedMemberIds.length === 1 ? "direct" : "group";
+      return request<{ id: string }>("/conversations", token, {
+        method: "POST",
         body: JSON.stringify({
           kind,
           memberIds: selectedMemberIds,
-          ...(kind === 'group' && groupName.trim()
+          ...(kind === "group" && groupName.trim()
             ? { name: groupName.trim() }
-            : {})
-        })
+            : {}),
+        }),
       });
     },
     onSuccess: async ({ id }) => {
-      await queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
       setChannelId(null);
       setConversationId(id);
       setNewConversationOpen(false);
-      setUserSearch('');
+      setUserSearch("");
       setSelectedMemberIds([]);
-      setGroupName('');
-    }
+      setGroupName("");
+    },
   });
 
   useEffect(() => {
     const textChannels =
-      channels.data?.items.filter((item) => item.kind === 'text') ?? [];
-    if (
-      !channelId &&
-      !conversationId &&
-      textChannels.length > 0
-    ) {
+      channels.data?.items.filter((item) => item.kind === "text") ?? [];
+    if (!channelId && !conversationId && textChannels.length > 0) {
       setChannelId(textChannels[0]!.id);
     }
   }, [channelId, conversationId, channels.data]);
@@ -667,45 +649,45 @@ function WorkspaceApp({
       : null;
 
   const messages = useQuery({
-    queryKey: ['messages', activeMessageKey],
+    queryKey: ["messages", activeMessageKey],
     enabled: Boolean(activeMessagesPath),
-    queryFn: () => request<Page<Message>>(activeMessagesPath!, token)
+    queryFn: () => request<Page<Message>>(activeMessagesPath!, token),
   });
 
   const searchResults = useQuery({
-    queryKey: ['global-search', searchQuery],
+    queryKey: ["global-search", searchQuery],
     enabled: searchOpen && searchQuery.trim().length >= 2,
     queryFn: () =>
       request<SearchResponse>(
         `/search?q=${encodeURIComponent(searchQuery.trim())}&limit=20`,
-        token
-      )
+        token,
+      ),
   });
 
   const notifications = useQuery({
-    queryKey: ['notifications'],
+    queryKey: ["notifications"],
     queryFn: () =>
-      request<{ items: NotificationItem[] }>('/notifications', token)
+      request<{ items: NotificationItem[] }>("/notifications", token),
   });
 
   const presence = useQuery({
-    queryKey: ['presence', workspaceId],
+    queryKey: ["presence", workspaceId],
     enabled: Boolean(workspaceId),
     queryFn: () =>
       request<{ items: PresenceMember[] }>(
         `/workspaces/${workspaceId}/presence`,
-        token
-      )
+        token,
+      ),
   });
 
   const thread = useQuery({
-    queryKey: ['thread', activeThread?.id],
+    queryKey: ["thread", activeThread?.id],
     enabled: Boolean(activeThread?.id),
     queryFn: () =>
       request<{ items: ThreadReply[] }>(
         `/messages/${activeThread!.id}/thread`,
-        token
-      )
+        token,
+      ),
   });
 
   useEffect(() => {
@@ -715,18 +697,18 @@ function WorkspaceApp({
 
     const connect = async () => {
       setSocketState(
-        reconnectAttempt.current > 0 ? 'reconnecting' : 'connecting'
+        reconnectAttempt.current > 0 ? "reconnecting" : "connecting",
       );
       try {
         const { ticket } = await request<{ ticket: string }>(
-          '/realtime/ticket',
+          "/realtime/ticket",
           token,
-          { method: 'POST', body: '{}' }
+          { method: "POST", body: "{}" },
         );
         if (cancelled) return;
 
         const url = new URL(WS_URL);
-        url.searchParams.set('ticket', ticket);
+        url.searchParams.set("ticket", ticket);
         const socket = new WebSocket(url);
         socketRef.current = socket;
 
@@ -742,59 +724,59 @@ function WorkspaceApp({
             return;
           }
 
-          if (event.type === 'session.ready') {
+          if (event.type === "session.ready") {
             const sequence = Number(
-              sessionStorage.getItem('pulsemesh:last-sequence') ?? '0'
+              sessionStorage.getItem("pulsemesh:last-sequence") ?? "0",
             );
             socket.send(
               JSON.stringify({
-                type: 'session.resume',
+                type: "session.resume",
                 lastSequence: Number.isFinite(sequence) ? sequence : 0,
                 rooms: [
                   activeRoom,
                   workspaceId ? `workspace:${workspaceId}` : null,
-                  activeCallRoomRef.current
-                ].filter((room): room is string => Boolean(room))
-              })
+                  activeCallRoomRef.current,
+                ].filter((room): room is string => Boolean(room)),
+              }),
             );
             return;
           }
 
-          if (event.type === 'session.resumed') {
+          if (event.type === "session.resumed") {
             socket.send(
               JSON.stringify({
-                type: 'room.subscribe',
-                room: activeRoom
-              })
+                type: "room.subscribe",
+                room: activeRoom,
+              }),
             );
             socket.send(
               JSON.stringify({
-                type: 'view.active',
-                room: activeRoom
-              })
+                type: "view.active",
+                room: activeRoom,
+              }),
             );
-            setSocketState('ready');
+            setSocketState("ready");
             if (event.truncated) {
               void queryClient.invalidateQueries({
-                queryKey: ['messages', activeMessageKey]
+                queryKey: ["messages", activeMessageKey],
               });
             }
             return;
           }
 
-          if (typeof event.sequence === 'number') {
+          if (typeof event.sequence === "number") {
             sessionStorage.setItem(
-              'pulsemesh:last-sequence',
-              String(event.sequence)
+              "pulsemesh:last-sequence",
+              String(event.sequence),
             );
           }
 
           if (
-            event.type === 'presence.updated' &&
+            event.type === "presence.updated" &&
             event.room === `workspace:${workspaceId}`
           ) {
             queryClient.setQueryData<{ items: PresenceMember[] }>(
-              ['presence', workspaceId],
+              ["presence", workspaceId],
               (current) => ({
                 items: (current?.items ?? []).map((member) =>
                   member.userId === event.payload.userId
@@ -804,31 +786,31 @@ function WorkspaceApp({
                         customText: event.payload.customText,
                         lastSeenAt: event.payload.lastSeenAt,
                         connectedDevices: event.payload.connectedDevices,
-                        activeWorkspaceId: event.payload.activeWorkspaceId
+                        activeWorkspaceId: event.payload.activeWorkspaceId,
                       }
-                    : member
-                )
-              })
+                    : member,
+                ),
+              }),
             );
             return;
           }
 
           if (
-            event.type === 'call.signal' &&
+            event.type === "call.signal" &&
             activeCallRef.current &&
             event.payload.callId === activeCallRef.current.id
           ) {
             void mediaSessionRef.current
               ?.handleSignal(
                 event.payload.fromParticipantId,
-                event.payload.signal
+                event.payload.signal,
               )
               .catch((error) =>
                 setCallError(
                   error instanceof Error
                     ? error.message
-                    : 'WebRTC signaling failed'
-                )
+                    : "WebRTC signaling failed",
+                ),
               );
             return;
           }
@@ -836,7 +818,7 @@ function WorkspaceApp({
           if (
             activeCallRef.current &&
             event.payload?.callId === activeCallRef.current.id &&
-            event.type === 'call.participant.joined'
+            event.type === "call.participant.joined"
           ) {
             const participant = event.payload.participant as CallParticipant;
             setActiveCall((current) =>
@@ -845,12 +827,12 @@ function WorkspaceApp({
                     ...current,
                     participants: [
                       ...current.participants.filter(
-                        (item) => item.id !== participant.id
+                        (item) => item.id !== participant.id,
                       ),
-                      participant
-                    ]
+                      participant,
+                    ],
                   }
-                : current
+                : current,
             );
             const selfId = selfParticipantIdRef.current;
             if (selfId && participant.id !== selfId) {
@@ -864,7 +846,7 @@ function WorkspaceApp({
           if (
             activeCallRef.current &&
             event.payload?.callId === activeCallRef.current.id &&
-            event.type === 'call.participant.updated'
+            event.type === "call.participant.updated"
           ) {
             const participant = event.payload.participant as CallParticipant;
             setActiveCall((current) =>
@@ -872,10 +854,10 @@ function WorkspaceApp({
                 ? {
                     ...current,
                     participants: current.participants.map((item) =>
-                      item.id === participant.id ? participant : item
-                    )
+                      item.id === participant.id ? participant : item,
+                    ),
                   }
-                : current
+                : current,
             );
             return;
           }
@@ -883,7 +865,7 @@ function WorkspaceApp({
           if (
             activeCallRef.current &&
             event.payload?.callId === activeCallRef.current.id &&
-            event.type === 'call.participant.left'
+            event.type === "call.participant.left"
           ) {
             const participant = event.payload.participant as CallParticipant;
             setActiveCall((current) =>
@@ -891,10 +873,10 @@ function WorkspaceApp({
                 ? {
                     ...current,
                     participants: current.participants.filter(
-                      (item) => item.id !== participant.id
-                    )
+                      (item) => item.id !== participant.id,
+                    ),
                   }
-                : current
+                : current,
             );
             setRemoteStreams((current) => {
               const next = { ...current };
@@ -906,7 +888,7 @@ function WorkspaceApp({
 
           if (
             activeCallRef.current &&
-            event.type === 'call.ended' &&
+            event.type === "call.ended" &&
             event.payload.callId === activeCallRef.current.id
           ) {
             mediaSessionRef.current?.leave();
@@ -927,35 +909,29 @@ function WorkspaceApp({
 
           if (
             event.room === activeRoom &&
-            (event.type.startsWith('message.') ||
-              event.type.startsWith('reaction.'))
+            (event.type.startsWith("message.") ||
+              event.type.startsWith("reaction."))
           ) {
             void queryClient.invalidateQueries({
-              queryKey: ['messages', activeMessageKey]
+              queryKey: ["messages", activeMessageKey],
             });
           }
 
-          if (
-            event.room === activeRoom &&
-            event.type === 'typing.started'
-          ) {
+          if (event.room === activeRoom && event.type === "typing.started") {
             setTyping(true);
           }
-          if (
-            event.room === activeRoom &&
-            event.type === 'typing.stopped'
-          ) {
+          if (event.room === activeRoom && event.type === "typing.stopped") {
             setTyping(false);
           }
         };
 
         socket.onclose = () => {
           if (cancelled) return;
-          setSocketState('reconnecting');
+          setSocketState("reconnecting");
           reconnectAttempt.current += 1;
           const delay = Math.min(
             1000 * 2 ** Math.min(reconnectAttempt.current, 5),
-            30000
+            30000,
           );
           retryRef.current = setTimeout(connect, delay);
         };
@@ -963,11 +939,11 @@ function WorkspaceApp({
         socket.onerror = () => socket.close();
       } catch {
         if (cancelled) return;
-        setSocketState('reconnecting');
+        setSocketState("reconnecting");
         reconnectAttempt.current += 1;
         retryRef.current = setTimeout(
           connect,
-          Math.min(1000 * 2 ** reconnectAttempt.current, 30000)
+          Math.min(1000 * 2 ** reconnectAttempt.current, 30000),
         );
       }
     };
@@ -977,7 +953,7 @@ function WorkspaceApp({
     return () => {
       cancelled = true;
       if (retryRef.current) clearTimeout(retryRef.current);
-      socketRef.current?.close(1000, 'Conversation changed');
+      socketRef.current?.close(1000, "Conversation changed");
       socketRef.current = null;
       setTyping(false);
     };
@@ -987,32 +963,28 @@ function WorkspaceApp({
     mutationFn: async ({
       body,
       clientMessageId,
-      attachmentIds
+      attachmentIds,
     }: {
       body: string;
       clientMessageId: string;
       attachmentIds: string[];
     }) => {
-      if (!activeMessageKey) throw new Error('No conversation selected');
+      if (!activeMessageKey) throw new Error("No conversation selected");
       const path = channelId
         ? `/channels/${channelId}/messages`
         : `/conversations/${conversationId}/messages`;
-      return request(
-        path,
-        token,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            body,
-            clientMessageId,
-            attachmentIds
-          })
-        }
-      );
+      return request(path, token, {
+        method: "POST",
+        body: JSON.stringify({
+          body,
+          clientMessageId,
+          attachmentIds,
+        }),
+      });
     },
     onMutate: async ({ body, clientMessageId, attachmentIds }) => {
       if (!activeMessageKey) return;
-      const key = ['messages', activeMessageKey] as const;
+      const key = ["messages", activeMessageKey] as const;
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<Page<Message>>(key);
       const optimistic: Message = {
@@ -1028,20 +1000,20 @@ function WorkspaceApp({
           .map((item) => ({
             id: item.fileId!,
             name: item.name,
-            mimeType: item.file.type || 'application/octet-stream',
-            sizeBytes: item.file.size
+            mimeType: item.file.type || "application/octet-stream",
+            sizeBytes: item.file.size,
           })),
         optimistic: true,
         sender: {
-          id: 'self',
-          username: 'you',
-          displayName: 'You',
-          avatarUrl: null
-        }
+          id: "self",
+          username: "you",
+          displayName: "You",
+          avatarUrl: null,
+        },
       };
       queryClient.setQueryData<Page<Message>>(key, {
         items: [optimistic, ...(previous?.items ?? [])],
-        nextCursor: previous?.nextCursor ?? null
+        nextCursor: previous?.nextCursor ?? null,
       });
       return { previous, key };
     },
@@ -1052,22 +1024,22 @@ function WorkspaceApp({
     },
     onSuccess: () => {
       setUploads((current) =>
-        current.filter((item) => item.status !== 'ready')
+        current.filter((item) => item.status !== "ready"),
       );
     },
     onSettled: () => {
       if (activeMessageKey) {
         void queryClient.invalidateQueries({
-          queryKey: ['messages', activeMessageKey]
+          queryKey: ["messages", activeMessageKey],
         });
       }
-    }
+    },
   });
 
   const invalidateActiveMessages = () => {
     if (activeMessageKey) {
       void queryClient.invalidateQueries({
-        queryKey: ['messages', activeMessageKey]
+        queryKey: ["messages", activeMessageKey],
       });
     }
   };
@@ -1076,7 +1048,7 @@ function WorkspaceApp({
     mutationFn: async ({
       messageId,
       emoji,
-      reacted
+      reacted,
     }: {
       messageId: string;
       emoji: string;
@@ -1085,7 +1057,7 @@ function WorkspaceApp({
       request(
         `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
         token,
-        { method: reacted ? 'DELETE' : 'PUT' }
+        { method: reacted ? "DELETE" : "PUT" },
       ),
     onSuccess: () => {
       setMessageActionError(null);
@@ -1093,38 +1065,38 @@ function WorkspaceApp({
     },
     onError: (error) =>
       setMessageActionError(
-        error instanceof Error ? error.message : 'Reaction failed'
-      )
+        error instanceof Error ? error.message : "Reaction failed",
+      ),
   });
 
   const editMessage = useMutation({
     mutationFn: async ({
       messageId,
-      body
+      body,
     }: {
       messageId: string;
       body: string;
     }) =>
       request(`/messages/${messageId}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({ body })
+        method: "PATCH",
+        body: JSON.stringify({ body }),
       }),
     onSuccess: () => {
       setEditingMessageId(null);
-      setEditBody('');
+      setEditBody("");
       setMessageActionError(null);
       invalidateActiveMessages();
     },
     onError: (error) =>
       setMessageActionError(
-        error instanceof Error ? error.message : 'Edit failed'
-      )
+        error instanceof Error ? error.message : "Edit failed",
+      ),
   });
 
   const deleteMessage = useMutation({
     mutationFn: (messageId: string) =>
       request(`/messages/${messageId}?scope=everyone`, token, {
-        method: 'DELETE'
+        method: "DELETE",
       }),
     onSuccess: () => {
       setMessageActionError(null);
@@ -1132,97 +1104,97 @@ function WorkspaceApp({
     },
     onError: (error) =>
       setMessageActionError(
-        error instanceof Error ? error.message : 'Delete failed'
-      )
+        error instanceof Error ? error.message : "Delete failed",
+      ),
   });
 
   const bookmarkMessage = useMutation({
     mutationFn: (messageId: string) =>
       request(`/messages/${messageId}/bookmark`, token, {
-        method: 'PUT',
-        body: JSON.stringify({ note: null })
+        method: "PUT",
+        body: JSON.stringify({ note: null }),
       }),
     onSuccess: () => setMessageActionError(null),
     onError: (error) =>
       setMessageActionError(
-        error instanceof Error ? error.message : 'Bookmark failed'
-      )
+        error instanceof Error ? error.message : "Bookmark failed",
+      ),
   });
 
   const pinMessage = useMutation({
     mutationFn: (messageId: string) =>
       request(`/messages/${messageId}/pin`, token, {
-        method: 'POST',
-        body: '{}'
+        method: "POST",
+        body: "{}",
       }),
     onSuccess: () => setMessageActionError(null),
     onError: (error) =>
       setMessageActionError(
-        error instanceof Error ? error.message : 'Pin failed'
-      )
+        error instanceof Error ? error.message : "Pin failed",
+      ),
   });
 
   const sendThreadReply = useMutation({
     mutationFn: async () => {
-      if (!activeThread) throw new Error('No thread selected');
+      if (!activeThread) throw new Error("No thread selected");
       const body = threadComposer.trim();
-      if (!body) throw new Error('Reply cannot be empty');
+      if (!body) throw new Error("Reply cannot be empty");
       return request(`/messages/${activeThread.id}/thread`, token, {
-        method: 'POST',
+        method: "POST",
         body: JSON.stringify({
           body,
-          clientMessageId: crypto.randomUUID()
-        })
+          clientMessageId: crypto.randomUUID(),
+        }),
       });
     },
     onSuccess: async () => {
-      setThreadComposer('');
+      setThreadComposer("");
       setMessageActionError(null);
       await queryClient.invalidateQueries({
-        queryKey: ['thread', activeThread?.id]
+        queryKey: ["thread", activeThread?.id],
       });
       invalidateActiveMessages();
     },
     onError: (error) =>
       setMessageActionError(
-        error instanceof Error ? error.message : 'Reply failed'
-      )
+        error instanceof Error ? error.message : "Reply failed",
+      ),
   });
 
   const markNotificationRead = useMutation({
     mutationFn: (notificationId: string) =>
       request(`/notifications/${notificationId}/read`, token, {
-        method: 'POST',
-        body: '{}'
+        method: "POST",
+        body: "{}",
       }),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+      queryClient.invalidateQueries({ queryKey: ["notifications"] }),
   });
 
   const markAllNotificationsRead = useMutation({
     mutationFn: () =>
-      request('/notifications/read-all', token, {
-        method: 'POST',
-        body: '{}'
+      request("/notifications/read-all", token, {
+        method: "POST",
+        body: "{}",
       }),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+      queryClient.invalidateQueries({ queryKey: ["notifications"] }),
   });
 
   const logout = useMutation({
     mutationFn: () =>
-      request('/auth/logout', token, {
-        method: 'POST',
-        body: '{}'
+      request("/auth/logout", token, {
+        method: "POST",
+        body: "{}",
       }),
-    onSettled: onLoggedOut
+    onSettled: onLoggedOut,
   });
 
   useEffect(() => {
-    if (socketState !== 'ready') return;
+    if (socketState !== "ready") return;
     const heartbeat = () => {
       if (socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(JSON.stringify({ type: 'presence.heartbeat' }));
+        socketRef.current.send(JSON.stringify({ type: "presence.heartbeat" }));
       }
     };
     heartbeat();
@@ -1232,24 +1204,24 @@ function WorkspaceApp({
 
   useEffect(() => {
     const latestMessage = messages.data?.items[0];
-    if (!latestMessage || !activeMessageKey || socketState !== 'ready') return;
+    if (!latestMessage || !activeMessageKey || socketState !== "ready") return;
 
     if (lastReadRef.current[activeMessageKey] === latestMessage.id) return;
     lastReadRef.current[activeMessageKey] = latestMessage.id;
 
-    void request('/read-state', token, {
-      method: 'PUT',
+    void request("/read-state", token, {
+      method: "PUT",
       body: JSON.stringify(
         channelId
           ? {
               channelId,
-              lastReadMessageId: latestMessage.id
+              lastReadMessageId: latestMessage.id,
             }
           : {
               conversationId,
-              lastReadMessageId: latestMessage.id
-            }
-      )
+              lastReadMessageId: latestMessage.id,
+            },
+      ),
     }).catch(() => {
       delete lastReadRef.current[activeMessageKey];
     });
@@ -1259,42 +1231,44 @@ function WorkspaceApp({
     conversationId,
     messages.data,
     socketState,
-    token
+    token,
   ]);
 
   const currentWorkspace = workspaces.data?.items.find(
-    (item) => item.id === workspaceId
+    (item) => item.id === workspaceId,
   );
   const currentChannel = channels.data?.items.find(
-    (item) => item.id === channelId
+    (item) => item.id === channelId,
   );
   const currentConversation = conversations.data?.items.find(
-    (item) => item.id === conversationId
+    (item) => item.id === conversationId,
   );
   const isEncryptedConversation =
-    currentConversation?.encryption_mode === 'e2ee_v1';
-  const currentTitle = currentChannel?.name ??
+    currentConversation?.encryption_mode === "e2ee_v1";
+  const currentTitle =
+    currentChannel?.name ??
     currentConversation?.name ??
-    (currentConversation?.kind === 'direct'
-      ? currentConversation.members.map((member) => member.displayName).join(', ')
-      : 'Select a conversation');
+    (currentConversation?.kind === "direct"
+      ? currentConversation.members
+          .map((member) => member.displayName)
+          .join(", ")
+      : "Select a conversation");
   const textChannels =
-    channels.data?.items.filter((item) => item.kind === 'text') ?? [];
+    channels.data?.items.filter((item) => item.kind === "text") ?? [];
   const voiceChannels =
-    channels.data?.items.filter((item) => item.kind === 'voice') ?? [];
+    channels.data?.items.filter((item) => item.kind === "voice") ?? [];
   const orderedMessages = useMemo(
     () => [...(messages.data?.items ?? [])].reverse(),
-    [messages.data]
+    [messages.data],
   );
   const unreadNotificationCount = (notifications.data?.items ?? []).filter(
-    (item) => !item.read_at
+    (item) => !item.read_at,
   ).length;
-
 
   async function startCall(input: {
     channelId?: string;
     conversationId?: string;
-    kind: 'voice' | 'video';
+    kind: "voice" | "video";
   }) {
     if (activeCall) return;
 
@@ -1302,20 +1276,20 @@ function WorkspaceApp({
     let startedCallId: string | null = null;
     try {
       const [{ iceServers }, call] = await Promise.all([
-        request<{ iceServers: RTCIceServer[] }>('/calls/ice-config', token),
-        request<ActiveCall>('/calls', token, {
-          method: 'POST',
-          body: JSON.stringify(input)
-        })
+        request<{ iceServers: RTCIceServer[] }>("/calls/ice-config", token),
+        request<ActiveCall>("/calls", token, {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
       ]);
 
       startedCallId = call.id;
       const userId = tokenSubject(token);
       const selfParticipant = call.participants.find(
-        (participant) => participant.userId === userId
+        (participant) => participant.userId === userId,
       );
       if (!selfParticipant) {
-        throw new Error('Current call participant could not be resolved');
+        throw new Error("Current call participant could not be resolved");
       }
 
       const room = call.channelId
@@ -1328,26 +1302,26 @@ function WorkspaceApp({
           if (socketRef.current?.readyState !== WebSocket.OPEN) return;
           socketRef.current.send(
             JSON.stringify({
-              type: 'call.signal',
+              type: "call.signal",
               callId: call.id,
               targetParticipantId,
-              signal
-            })
+              signal,
+            }),
           );
         },
         onRemoteStream: (participantId, stream) => {
           setRemoteStreams((current) => ({
             ...current,
-            [participantId]: stream
+            [participantId]: stream,
           }));
         },
         onScreenShareEnded: () => {
           setScreenSharing(false);
           void request(`/calls/${call.id}/participant`, token, {
-            method: 'PATCH',
-            body: JSON.stringify({ screenSharing: false })
+            method: "PATCH",
+            body: JSON.stringify({ screenSharing: false }),
           }).catch(() => undefined);
-        }
+        },
       });
 
       mediaSessionRef.current = media;
@@ -1357,19 +1331,17 @@ function WorkspaceApp({
       setActiveCall(call);
       setActiveCallRoom(room);
 
-      socketRef.current?.send(
-        JSON.stringify({ type: 'room.subscribe', room })
-      );
+      socketRef.current?.send(JSON.stringify({ type: "room.subscribe", room }));
 
       await media.startAudio();
 
-      if (call.kind === 'video') {
+      if (call.kind === "video") {
         const stream = await media.startCamera();
         setLocalVideoStream(stream);
         setCameraEnabled(true);
         await request(`/calls/${call.id}/participant`, token, {
-          method: 'PATCH',
-          body: JSON.stringify({ cameraEnabled: true })
+          method: "PATCH",
+          body: JSON.stringify({ cameraEnabled: true }),
         });
       }
 
@@ -1377,14 +1349,14 @@ function WorkspaceApp({
         if (participant.id === selfParticipant.id) continue;
         await media.connectPeer(
           participant.id,
-          selfParticipant.id < participant.id
+          selfParticipant.id < participant.id,
         );
       }
     } catch (error) {
       if (startedCallId) {
         void request(`/calls/${startedCallId}/leave`, token, {
-          method: 'POST',
-          body: '{}'
+          method: "POST",
+          body: "{}",
         }).catch(() => undefined);
       }
       mediaSessionRef.current?.leave();
@@ -1397,7 +1369,7 @@ function WorkspaceApp({
       setLocalVideoStream(null);
       setRemoteStreams({});
       setCallError(
-        error instanceof Error ? error.message : 'Could not start call'
+        error instanceof Error ? error.message : "Could not start call",
       );
     }
   }
@@ -1408,12 +1380,12 @@ function WorkspaceApp({
       deafened: boolean;
       cameraEnabled: boolean;
       screenSharing: boolean;
-    }>
+    }>,
   ) {
     if (!activeCall) return;
     await request(`/calls/${activeCall.id}/participant`, token, {
-      method: 'PATCH',
-      body: JSON.stringify(patch)
+      method: "PATCH",
+      body: JSON.stringify(patch),
     });
   }
 
@@ -1427,7 +1399,7 @@ function WorkspaceApp({
     } catch (error) {
       mediaSessionRef.current?.setMuted(!next);
       setMuted(!next);
-      setCallError(error instanceof Error ? error.message : 'Mute failed');
+      setCallError(error instanceof Error ? error.message : "Mute failed");
     }
   }
 
@@ -1441,12 +1413,12 @@ function WorkspaceApp({
     } catch (error) {
       mediaSessionRef.current?.setDeafened(!next);
       setDeafened(!next);
-      setCallError(error instanceof Error ? error.message : 'Deafen failed');
+      setCallError(error instanceof Error ? error.message : "Deafen failed");
     }
   }
 
   async function toggleCamera() {
-    if (!activeCall || activeCall.kind !== 'video') return;
+    if (!activeCall || activeCall.kind !== "video") return;
     const media = mediaSessionRef.current;
     if (!media) return;
     try {
@@ -1461,7 +1433,7 @@ function WorkspaceApp({
       setCameraEnabled(next);
       await updateParticipantState({ cameraEnabled: next });
     } catch (error) {
-      setCallError(error instanceof Error ? error.message : 'Camera failed');
+      setCallError(error instanceof Error ? error.message : "Camera failed");
     }
   }
 
@@ -1482,7 +1454,7 @@ function WorkspaceApp({
       }
     } catch (error) {
       setCallError(
-        error instanceof Error ? error.message : 'Screen sharing failed'
+        error instanceof Error ? error.message : "Screen sharing failed",
       );
     }
   }
@@ -1493,8 +1465,8 @@ function WorkspaceApp({
     const room = activeCallRoom;
     try {
       await request(`/calls/${callId}/leave`, token, {
-        method: 'POST',
-        body: '{}'
+        method: "POST",
+        body: "{}",
       });
     } finally {
       mediaSessionRef.current?.leave();
@@ -1512,7 +1484,7 @@ function WorkspaceApp({
       setScreenSharing(false);
       if (room && room !== activeRoom) {
         socketRef.current?.send(
-          JSON.stringify({ type: 'room.unsubscribe', room })
+          JSON.stringify({ type: "room.unsubscribe", room }),
         );
       }
     }
@@ -1520,7 +1492,7 @@ function WorkspaceApp({
 
   async function waitForFileReady(
     fileId: string,
-    localId: string
+    localId: string,
   ): Promise<void> {
     for (let attempt = 0; attempt < 40; attempt += 1) {
       const result = await request<{
@@ -1528,33 +1500,33 @@ function WorkspaceApp({
         processingError?: string | null;
       }>(`/files/${fileId}`, token);
 
-      if (result.status === 'ready') {
+      if (result.status === "ready") {
         setUploads((current) =>
           current.map((item) =>
             item.localId === localId
-              ? { ...item, status: 'ready', progress: 100, error: null }
-              : item
-          )
+              ? { ...item, status: "ready", progress: 100, error: null }
+              : item,
+          ),
         );
         return;
       }
 
-      if (result.status === 'rejected') {
+      if (result.status === "rejected") {
         throw new Error(
-          result.processingError || 'File processing was rejected'
+          result.processingError || "File processing was rejected",
         );
       }
 
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
-    throw new Error('File processing timed out');
+    throw new Error("File processing timed out");
   }
 
   async function uploadFile(file: File, existingLocalId?: string) {
     if (isEncryptedConversation) {
       setMessageActionError(
-        'Attachments are disabled until this web client supports libsignal encryption.'
+        "Attachments are disabled until this web client supports libsignal encryption.",
       );
       return;
     }
@@ -1568,11 +1540,11 @@ function WorkspaceApp({
             ? {
                 ...item,
                 fileId: null,
-                status: 'uploading',
+                status: "uploading",
                 progress: 0,
-                error: null
+                error: null,
               }
-            : item
+            : item,
         );
       }
 
@@ -1583,10 +1555,10 @@ function WorkspaceApp({
           fileId: null,
           file,
           name: file.name,
-          status: 'uploading',
+          status: "uploading",
           progress: 0,
-          error: null
-        }
+          error: null,
+        },
       ];
     });
 
@@ -1595,27 +1567,25 @@ function WorkspaceApp({
         fileId: string;
         uploadUrl: string;
         headers: Record<string, string>;
-      }>('/files/presign', token, {
-        method: 'POST',
+      }>("/files/presign", token, {
+        method: "POST",
         body: JSON.stringify({
           name: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          sizeBytes: file.size
-        })
+          mimeType: file.type || "application/octet-stream",
+          sizeBytes: file.size,
+        }),
       });
 
       setUploads((current) =>
         current.map((item) =>
-          item.localId === localId
-            ? { ...item, fileId: presign.fileId }
-            : item
-        )
+          item.localId === localId ? { ...item, fileId: presign.fileId } : item,
+        ),
       );
 
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         uploadXhrsRef.current.set(localId, xhr);
-        xhr.open('PUT', presign.uploadUrl);
+        xhr.open("PUT", presign.uploadUrl);
 
         Object.entries(presign.headers).forEach(([key, value]) => {
           xhr.setRequestHeader(key, value);
@@ -1626,25 +1596,23 @@ function WorkspaceApp({
           const progress = Math.round((event.loaded / event.total) * 100);
           setUploads((current) =>
             current.map((item) =>
-              item.localId === localId
-                ? { ...item, progress }
-                : item
-            )
+              item.localId === localId ? { ...item, progress } : item,
+            ),
           );
         };
 
         xhr.onload = () => {
           uploadXhrsRef.current.delete(localId);
           if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error('Object storage upload failed'));
+          else reject(new Error("Object storage upload failed"));
         };
         xhr.onerror = () => {
           uploadXhrsRef.current.delete(localId);
-          reject(new Error('Object storage upload failed'));
+          reject(new Error("Object storage upload failed"));
         };
         xhr.onabort = () => {
           uploadXhrsRef.current.delete(localId);
-          reject(new Error('Upload cancelled'));
+          reject(new Error("Upload cancelled"));
         };
         xhr.send(file);
       });
@@ -1652,14 +1620,14 @@ function WorkspaceApp({
       setUploads((current) =>
         current.map((item) =>
           item.localId === localId
-            ? { ...item, status: 'processing', progress: 100 }
-            : item
-        )
+            ? { ...item, status: "processing", progress: 100 }
+            : item,
+        ),
       );
 
       await request(`/files/${presign.fileId}/complete`, token, {
-        method: 'POST',
-        body: '{}'
+        method: "POST",
+        body: "{}",
       });
 
       await waitForFileReady(presign.fileId, localId);
@@ -1670,17 +1638,13 @@ function WorkspaceApp({
             ? {
                 ...item,
                 status:
-                  error instanceof Error &&
-                  error.message === 'Upload cancelled'
-                    ? 'cancelled'
-                    : 'failed',
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : 'Upload failed'
+                  error instanceof Error && error.message === "Upload cancelled"
+                    ? "cancelled"
+                    : "failed",
+                error: error instanceof Error ? error.message : "Upload failed",
               }
-            : item
-        )
+            : item,
+        ),
       );
     }
   }
@@ -1691,7 +1655,7 @@ function WorkspaceApp({
     if (item.fileId) {
       try {
         await request(`/files/${item.fileId}`, token, {
-          method: 'DELETE'
+          method: "DELETE",
         });
       } catch {
         // A file that is already processing/attached may no longer be cancellable.
@@ -1699,7 +1663,7 @@ function WorkspaceApp({
     }
 
     setUploads((current) =>
-      current.filter((candidate) => candidate.localId !== item.localId)
+      current.filter((candidate) => candidate.localId !== item.localId),
     );
   }
 
@@ -1708,12 +1672,12 @@ function WorkspaceApp({
       const result = await request<{ url: string }>(
         `/files/${attachment.id}/download`,
         token,
-        { method: 'POST', body: '{}' }
+        { method: "POST", body: "{}" },
       );
-      window.open(result.url, '_blank', 'noopener,noreferrer');
+      window.open(result.url, "_blank", "noopener,noreferrer");
     } catch (error) {
       setMessageActionError(
-        error instanceof Error ? error.message : 'Download failed'
+        error instanceof Error ? error.message : "Download failed",
       );
     }
   }
@@ -1723,15 +1687,15 @@ function WorkspaceApp({
     const body = composer.trim();
     if (isEncryptedConversation) {
       setMessageActionError(
-        'This conversation is end-to-end encrypted. Sending from the web client is disabled until libsignal support is available.'
+        "This conversation is end-to-end encrypted. Sending from the web client is disabled until libsignal support is available.",
       );
       return;
     }
     const readyUploads = uploads.filter(
-      (item) => item.status === 'ready' && item.fileId
+      (item) => item.status === "ready" && item.fileId,
     );
     const hasPendingUploads = uploads.some(
-      (item) => item.status === 'uploading' || item.status === 'processing'
+      (item) => item.status === "uploading" || item.status === "processing",
     );
     if (
       (!body && readyUploads.length === 0) ||
@@ -1741,33 +1705,28 @@ function WorkspaceApp({
     ) {
       return;
     }
-    setComposer('');
+    setComposer("");
     sendMessage.mutate({
       body,
       clientMessageId: crypto.randomUUID(),
-      attachmentIds: readyUploads.map((item) => item.fileId!)
+      attachmentIds: readyUploads.map((item) => item.fileId!),
     });
     socketRef.current?.send(
       JSON.stringify({
-        type: 'typing.stopped',
-        room: activeRoom
-      })
+        type: "typing.stopped",
+        room: activeRoom,
+      }),
     );
   }
 
   function onComposerChange(value: string) {
     setComposer(value);
-    if (
-      activeRoom &&
-      socketRef.current?.readyState === WebSocket.OPEN
-    ) {
+    if (activeRoom && socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
-          type: value
-            ? 'typing.started'
-            : 'typing.stopped',
-          room: activeRoom
-        })
+          type: value ? "typing.started" : "typing.stopped",
+          room: activeRoom,
+        }),
       );
     }
   }
@@ -1793,8 +1752,8 @@ function WorkspaceApp({
             Your PulseMesh account is ready
           </h1>
           <p className="mt-3 text-sm leading-6 text-slate-400">
-            Create a workspace or start a direct conversation, then this
-            client will load it immediately.
+            Create a workspace or start a direct conversation, then this client
+            will load it immediately.
           </p>
           <button
             onClick={() => logout.mutate()}
@@ -1823,14 +1782,14 @@ function WorkspaceApp({
                 setChannelId(null);
               }}
               className={
-                'grid size-11 place-items-center rounded-2xl border text-sm font-semibold transition ' +
+                "grid size-11 place-items-center rounded-2xl border text-sm font-semibold transition " +
                 (workspace.id === workspaceId
-                  ? 'border-[#68e0cf]/35 bg-[#68e0cf]/12 text-[#9af5e8]'
-                  : 'border-white/8 bg-white/[0.035] text-slate-400 hover:bg-white/[0.07]')
+                  ? "border-[#68e0cf]/35 bg-[#68e0cf]/12 text-[#9af5e8]"
+                  : "border-white/8 bg-white/[0.035] text-slate-400 hover:bg-white/[0.07]")
               }
               aria-label={workspace.name}
             >
-              {initials(workspace.name) || 'W'}
+              {initials(workspace.name) || "W"}
             </button>
           ))}
           <button className="grid size-11 place-items-center rounded-2xl border border-dashed border-white/15 text-slate-500">
@@ -1853,7 +1812,7 @@ function WorkspaceApp({
               </p>
               <button className="mt-0.5 flex max-w-full items-center gap-1 font-semibold">
                 <span className="truncate">
-                  {currentWorkspace?.name ?? 'PulseMesh'}
+                  {currentWorkspace?.name ?? "PulseMesh"}
                 </span>
                 <ChevronDown className="size-4 shrink-0 text-slate-500" />
               </button>
@@ -1886,10 +1845,10 @@ function WorkspaceApp({
                     setChannelId(channel.id);
                   }}
                   className={
-                    'flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm ' +
+                    "flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm " +
                     (channel.id === channelId
-                      ? 'bg-[linear-gradient(90deg,rgba(104,224,207,.11),rgba(115,167,255,.05))] text-white'
-                      : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200')
+                      ? "bg-[linear-gradient(90deg,rgba(104,224,207,.11),rgba(115,167,255,.05))] text-white"
+                      : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200")
                   }
                 >
                   <Hash className="size-4 opacity-60" />
@@ -1909,27 +1868,35 @@ function WorkspaceApp({
               </button>
             </div>
             <div className="space-y-1">
-              {(conversations.data?.items ?? []).slice(0, 12).map((conversation) => {
-                const label = conversation.name ?? conversation.members.map((member) => member.displayName).join(', ');
-                return (
-                  <button
-                    key={conversation.id}
-                    onClick={() => {
-                      setChannelId(null);
-                      setConversationId(conversation.id);
-                    }}
-                    className={
-                      'flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm ' +
-                      (conversation.id === conversationId
-                        ? 'bg-[linear-gradient(90deg,rgba(115,167,255,.11),rgba(104,224,207,.05))] text-white'
-                        : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200')
-                    }
-                  >
-                    <MessageCircle className="size-4 opacity-60" />
-                    <span className="truncate">{label || 'Conversation'}</span>
-                  </button>
-                );
-              })}
+              {(conversations.data?.items ?? [])
+                .slice(0, 12)
+                .map((conversation) => {
+                  const label =
+                    conversation.name ??
+                    conversation.members
+                      .map((member) => member.displayName)
+                      .join(", ");
+                  return (
+                    <button
+                      key={conversation.id}
+                      onClick={() => {
+                        setChannelId(null);
+                        setConversationId(conversation.id);
+                      }}
+                      className={
+                        "flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm " +
+                        (conversation.id === conversationId
+                          ? "bg-[linear-gradient(90deg,rgba(115,167,255,.11),rgba(104,224,207,.05))] text-white"
+                          : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200")
+                      }
+                    >
+                      <MessageCircle className="size-4 opacity-60" />
+                      <span className="truncate">
+                        {label || "Conversation"}
+                      </span>
+                    </button>
+                  );
+                })}
             </div>
 
             <div className="mb-2 mt-6 flex items-center justify-between px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -1942,13 +1909,13 @@ function WorkspaceApp({
                   key={channel.id}
                   type="button"
                   onClick={() =>
-                    void startCall({ channelId: channel.id, kind: 'voice' })
+                    void startCall({ channelId: channel.id, kind: "voice" })
                   }
                   className={
-                    'flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm ' +
+                    "flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm " +
                     (activeCall?.channelId === channel.id
-                      ? 'bg-emerald-400/10 text-emerald-300'
-                      : 'text-slate-400 hover:bg-white/[0.04]')
+                      ? "bg-emerald-400/10 text-emerald-300"
+                      : "text-slate-400 hover:bg-white/[0.04]")
                   }
                 >
                   <Volume2 className="size-4" />
@@ -1959,9 +1926,7 @@ function WorkspaceApp({
                 </button>
               ))
             ) : (
-              <p className="px-2 text-xs text-slate-600">
-                No voice rooms yet
-              </p>
+              <p className="px-2 text-xs text-slate-600">No voice rooms yet</p>
             )}
           </nav>
         </aside>
@@ -1977,9 +1942,7 @@ function WorkspaceApp({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="font-semibold">
-                  {currentTitle}
-                </h1>
+                <h1 className="font-semibold">{currentTitle}</h1>
                 {isEncryptedConversation && (
                   <span
                     className="inline-flex items-center gap-1 rounded-lg border border-[#68e0cf]/15 bg-[#68e0cf]/[0.06] px-2 py-0.5 text-[10px] font-medium text-[#9af5e8]"
@@ -1992,10 +1955,10 @@ function WorkspaceApp({
               </div>
               <p className="truncate text-xs text-slate-500">
                 {currentConversation
-                  ? currentConversation.kind === 'direct'
-                    ? 'Direct message'
+                  ? currentConversation.kind === "direct"
+                    ? "Direct message"
                     : `${currentConversation.members.length} participants`
-                  : currentChannel?.topic ?? 'Realtime team conversation'}
+                  : (currentChannel?.topic ?? "Realtime team conversation")}
               </p>
             </div>
             <div className="ml-auto flex items-center gap-1">
@@ -2003,7 +1966,7 @@ function WorkspaceApp({
                 className="mr-2 flex items-center gap-1.5 text-[11px] text-slate-500"
                 title={socketState}
               >
-                {socketState === 'ready' ? (
+                {socketState === "ready" ? (
                   <Wifi className="size-3.5 text-emerald-400" />
                 ) : (
                   <WifiOff className="size-3.5 text-amber-400" />
@@ -2017,7 +1980,7 @@ function WorkspaceApp({
                     onClick={() =>
                       void startCall({
                         conversationId: currentConversation.id,
-                        kind: 'voice'
+                        kind: "voice",
                       })
                     }
                     className="rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white"
@@ -2030,7 +1993,7 @@ function WorkspaceApp({
                     onClick={() =>
                       void startCall({
                         conversationId: currentConversation.id,
-                        kind: 'video'
+                        kind: "video",
                       })
                     }
                     className="rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white"
@@ -2057,7 +2020,9 @@ function WorkspaceApp({
                 <Bell className="size-4" />
                 {unreadNotificationCount > 0 && (
                   <span className="absolute right-0.5 top-0.5 grid min-w-4 place-items-center rounded-full bg-[#68e0cf] px-1 text-[9px] font-bold leading-4 text-[#061013]">
-                    {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                    {unreadNotificationCount > 99
+                      ? "99+"
+                      : unreadNotificationCount}
                   </span>
                 )}
               </button>
@@ -2070,7 +2035,7 @@ function WorkspaceApp({
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="grid size-10 place-items-center rounded-2xl bg-emerald-400/10 text-emerald-300">
-                      {activeCall.kind === 'video' ? (
+                      {activeCall.kind === "video" ? (
                         <Video className="size-4" />
                       ) : (
                         <Phone className="size-4" />
@@ -2078,11 +2043,14 @@ function WorkspaceApp({
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold">
-                        {activeCall.kind === 'video' ? 'Video call' : 'Voice call'}
+                        {activeCall.kind === "video"
+                          ? "Video call"
+                          : "Voice call"}
                       </p>
                       <p className="text-xs text-slate-500">
                         {activeCall.participants.length} participant
-                        {activeCall.participants.length === 1 ? '' : 's'} · mesh WebRTC
+                        {activeCall.participants.length === 1 ? "" : "s"} · mesh
+                        WebRTC
                       </p>
                     </div>
                   </div>
@@ -2092,12 +2060,12 @@ function WorkspaceApp({
                       type="button"
                       onClick={() => void toggleMuted()}
                       className={
-                        'rounded-xl p-2 ' +
+                        "rounded-xl p-2 " +
                         (muted
-                          ? 'bg-rose-400/10 text-rose-300'
-                          : 'bg-white/[0.04] text-slate-400')
+                          ? "bg-rose-400/10 text-rose-300"
+                          : "bg-white/[0.04] text-slate-400")
                       }
-                      aria-label={muted ? 'Unmute' : 'Mute'}
+                      aria-label={muted ? "Unmute" : "Mute"}
                     >
                       {muted ? (
                         <MicOff className="size-4" />
@@ -2109,26 +2077,28 @@ function WorkspaceApp({
                       type="button"
                       onClick={() => void toggleDeafened()}
                       className={
-                        'rounded-xl p-2 ' +
+                        "rounded-xl p-2 " +
                         (deafened
-                          ? 'bg-amber-400/10 text-amber-300'
-                          : 'bg-white/[0.04] text-slate-400')
+                          ? "bg-amber-400/10 text-amber-300"
+                          : "bg-white/[0.04] text-slate-400")
                       }
-                      aria-label={deafened ? 'Undeafen' : 'Deafen'}
+                      aria-label={deafened ? "Undeafen" : "Deafen"}
                     >
                       <Headphones className="size-4" />
                     </button>
-                    {activeCall.kind === 'video' && (
+                    {activeCall.kind === "video" && (
                       <button
                         type="button"
                         onClick={() => void toggleCamera()}
                         className={
-                          'rounded-xl p-2 ' +
+                          "rounded-xl p-2 " +
                           (cameraEnabled
-                            ? 'bg-[#68e0cf]/10 text-[#9af5e8]'
-                            : 'bg-white/[0.04] text-slate-400')
+                            ? "bg-[#68e0cf]/10 text-[#9af5e8]"
+                            : "bg-white/[0.04] text-slate-400")
                         }
-                        aria-label={cameraEnabled ? 'Turn camera off' : 'Turn camera on'}
+                        aria-label={
+                          cameraEnabled ? "Turn camera off" : "Turn camera on"
+                        }
                       >
                         {cameraEnabled ? (
                           <Video className="size-4" />
@@ -2142,10 +2112,10 @@ function WorkspaceApp({
                         type="button"
                         onClick={() => void toggleScreenShare()}
                         className={
-                          'rounded-xl p-2 ' +
+                          "rounded-xl p-2 " +
                           (screenSharing
-                            ? 'bg-[#68e0cf]/10 text-[#9af5e8]'
-                            : 'bg-white/[0.04] text-slate-400')
+                            ? "bg-[#68e0cf]/10 text-[#9af5e8]"
+                            : "bg-white/[0.04] text-slate-400")
                         }
                         aria-label="Share screen"
                       >
@@ -2169,7 +2139,7 @@ function WorkspaceApp({
                   </div>
                 )}
 
-                {activeCall.kind === 'video' && (
+                {activeCall.kind === "video" && (
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                     {localVideoStream && (
                       <div className="relative aspect-video overflow-hidden rounded-2xl border border-white/10 bg-black/30">
@@ -2183,7 +2153,7 @@ function WorkspaceApp({
                       .filter(
                         (participant) =>
                           participant.id !== selfParticipantIdRef.current &&
-                          remoteStreams[participant.id]
+                          remoteStreams[participant.id],
                       )
                       .map((participant) => (
                         <div
@@ -2202,14 +2172,16 @@ function WorkspaceApp({
                   </div>
                 )}
 
-                {activeCall.kind === 'voice' &&
-                  Object.entries(remoteStreams).map(([participantId, stream]) => (
-                    <RemoteMedia
-                      key={participantId}
-                      stream={stream}
-                      video={false}
-                    />
-                  ))}
+                {activeCall.kind === "voice" &&
+                  Object.entries(remoteStreams).map(
+                    ([participantId, stream]) => (
+                      <RemoteMedia
+                        key={participantId}
+                        stream={stream}
+                        video={false}
+                      />
+                    ),
+                  )}
               </div>
             </div>
           )}
@@ -2231,12 +2203,12 @@ function WorkspaceApp({
                     <article
                       key={message.id}
                       className={
-                        'group flex gap-3 rounded-2xl px-2 py-1.5 transition hover:bg-white/[0.025] ' +
-                        (message.optimistic ? 'opacity-60' : '')
+                        "group flex gap-3 rounded-2xl px-2 py-1.5 transition hover:bg-white/[0.025] " +
+                        (message.optimistic ? "opacity-60" : "")
                       }
                     >
                       <div className="grid size-10 shrink-0 place-items-center rounded-2xl border border-white/10 bg-white/[0.05] text-xs font-semibold">
-                        {initials(message.sender.displayName) || '?'}
+                        {initials(message.sender.displayName) || "?"}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-2">
@@ -2246,7 +2218,7 @@ function WorkspaceApp({
                           <span className="text-[11px] text-slate-600">
                             {new Date(message.createdAt).toLocaleTimeString(
                               [],
-                              { hour: '2-digit', minute: '2-digit' }
+                              { hour: "2-digit", minute: "2-digit" },
                             )}
                           </span>
                           {message.editedAt && (
@@ -2268,7 +2240,9 @@ function WorkspaceApp({
                               )}
                               <button
                                 type="button"
-                                onClick={() => bookmarkMessage.mutate(message.id)}
+                                onClick={() =>
+                                  bookmarkMessage.mutate(message.id)
+                                }
                                 className="rounded-lg p-1.5 text-slate-500 hover:bg-white/5 hover:text-white"
                                 aria-label="Bookmark message"
                               >
@@ -2311,18 +2285,22 @@ function WorkspaceApp({
                           <div className="mt-2">
                             <textarea
                               value={editBody}
-                              onChange={(event) => setEditBody(event.target.value)}
+                              onChange={(event) =>
+                                setEditBody(event.target.value)
+                              }
                               rows={2}
                               className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-sm outline-none focus:border-[#68e0cf]/40"
                             />
                             <div className="mt-2 flex gap-2">
                               <button
                                 type="button"
-                                disabled={!editBody.trim() || editMessage.isPending}
+                                disabled={
+                                  !editBody.trim() || editMessage.isPending
+                                }
                                 onClick={() =>
                                   editMessage.mutate({
                                     messageId: message.id,
-                                    body: editBody.trim()
+                                    body: editBody.trim(),
                                   })
                                 }
                                 className="rounded-xl bg-[#68e0cf] px-3 py-1.5 text-xs font-semibold text-[#061013] disabled:opacity-40"
@@ -2333,7 +2311,7 @@ function WorkspaceApp({
                                 type="button"
                                 onClick={() => {
                                   setEditingMessageId(null);
-                                  setEditBody('');
+                                  setEditBody("");
                                 }}
                                 className="rounded-xl border border-white/10 px-3 py-1.5 text-xs text-slate-400"
                               >
@@ -2345,7 +2323,8 @@ function WorkspaceApp({
                           <div className="mt-2 flex items-center gap-2 rounded-xl border border-[#68e0cf]/10 bg-[#68e0cf]/[0.04] px-3 py-2 text-sm text-slate-400">
                             <LockKeyhole className="size-4 shrink-0 text-[#68e0cf]" />
                             <span>
-                              Encrypted message · decrypt with an E2EE-capable PulseMesh client
+                              Encrypted message · decrypt with an E2EE-capable
+                              PulseMesh client
                             </span>
                           </div>
                         ) : (
@@ -2360,7 +2339,9 @@ function WorkspaceApp({
                               <button
                                 key={attachment.id}
                                 type="button"
-                                onClick={() => void downloadAttachment(attachment)}
+                                onClick={() =>
+                                  void downloadAttachment(attachment)
+                                }
                                 className="flex max-w-xs items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2 text-left hover:bg-white/[0.06]"
                               >
                                 <FileText className="size-4 shrink-0 text-[#68e0cf]" />
@@ -2369,7 +2350,8 @@ function WorkspaceApp({
                                     {attachment.name}
                                   </span>
                                   <span className="block text-[10px] text-slate-600">
-                                    {(attachment.sizeBytes / 1024).toFixed(1)} KB
+                                    {(attachment.sizeBytes / 1024).toFixed(1)}{" "}
+                                    KB
                                   </span>
                                 </span>
                               </button>
@@ -2387,22 +2369,22 @@ function WorkspaceApp({
                                   reactionMutation.mutate({
                                     messageId: message.id,
                                     emoji: reaction.emoji,
-                                    reacted: reaction.reactedByMe
+                                    reacted: reaction.reactedByMe,
                                   })
                                 }
                                 className={
-                                  'rounded-xl border px-2 py-1 text-xs transition ' +
+                                  "rounded-xl border px-2 py-1 text-xs transition " +
                                   (reaction.reactedByMe
-                                    ? 'border-[#68e0cf]/30 bg-[#68e0cf]/10 text-[#9af5e8]'
-                                    : 'border-white/8 bg-white/[0.03] text-slate-400')
+                                    ? "border-[#68e0cf]/30 bg-[#68e0cf]/10 text-[#9af5e8]"
+                                    : "border-white/8 bg-white/[0.03] text-slate-400")
                                 }
                               >
                                 {reaction.emoji} {reaction.count}
                               </button>
                             ))}
-                            {['👍', '🔥', '😂'].map((emoji) => {
+                            {["👍", "🔥", "😂"].map((emoji) => {
                               const existing = (message.reactions ?? []).find(
-                                (reaction) => reaction.emoji === emoji
+                                (reaction) => reaction.emoji === emoji,
                               );
                               if (existing) return null;
                               return (
@@ -2413,7 +2395,7 @@ function WorkspaceApp({
                                     reactionMutation.mutate({
                                       messageId: message.id,
                                       emoji,
-                                      reacted: false
+                                      reacted: false,
                                     })
                                   }
                                   className="rounded-xl border border-dashed border-white/8 px-2 py-1 text-xs text-slate-600 hover:text-slate-300"
@@ -2436,8 +2418,8 @@ function WorkspaceApp({
                     Start the conversation
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Messages sent here are persisted in PostgreSQL and
-                    delivered over WebSockets.
+                    Messages sent here are persisted in PostgreSQL and delivered
+                    over WebSockets.
                   </p>
                 </div>
               )}
@@ -2447,13 +2429,16 @@ function WorkspaceApp({
           <div className="px-4 pb-4 md:px-6 md:pb-5">
             <div className="mx-auto max-w-3xl">
               <div className="mb-1 min-h-5 px-2 text-xs text-slate-600">
-                {typing ? 'Someone is typing…' : ''}
+                {typing ? "Someone is typing…" : ""}
               </div>
               {isEncryptedConversation && (
                 <div className="mb-2 flex items-start gap-2 rounded-2xl border border-[#68e0cf]/10 bg-[#68e0cf]/[0.04] px-4 py-3 text-xs leading-5 text-slate-400">
                   <LockKeyhole className="mt-0.5 size-4 shrink-0 text-[#68e0cf]" />
                   <span>
-                    This conversation uses end-to-end encryption. Reading and sending ciphertext on web will be enabled after the libsignal client is completed. Plaintext and attachments are blocked here.
+                    This conversation uses end-to-end encryption. Reading and
+                    sending ciphertext on web will be enabled after the
+                    libsignal client is completed. Plaintext and attachments are
+                    blocked here.
                   </span>
                 </div>
               )}
@@ -2470,15 +2455,15 @@ function WorkspaceApp({
                           {item.name}
                         </p>
                         <p className="text-[10px] text-slate-600">
-                          {item.status === 'uploading'
+                          {item.status === "uploading"
                             ? `${item.progress}% uploaded`
-                            : item.status === 'processing'
-                              ? 'Processing…'
-                              : item.status === 'ready'
-                                ? 'Ready to send'
-                                : item.error ?? item.status}
+                            : item.status === "processing"
+                              ? "Processing…"
+                              : item.status === "ready"
+                                ? "Ready to send"
+                                : (item.error ?? item.status)}
                         </p>
-                        {item.status === 'uploading' && (
+                        {item.status === "uploading" && (
                           <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/5">
                             <div
                               className="h-full bg-[#68e0cf]"
@@ -2487,10 +2472,12 @@ function WorkspaceApp({
                           </div>
                         )}
                       </div>
-                      {item.status === 'failed' ? (
+                      {item.status === "failed" ? (
                         <button
                           type="button"
-                          onClick={() => void uploadFile(item.file, item.localId)}
+                          onClick={() =>
+                            void uploadFile(item.file, item.localId)
+                          }
                           className="rounded-lg p-1.5 text-slate-500 hover:text-white"
                           aria-label="Retry upload"
                         >
@@ -2517,8 +2504,8 @@ function WorkspaceApp({
                 onDrop={(event) => {
                   event.preventDefault();
                   if (isEncryptedConversation) return;
-                  Array.from(event.dataTransfer.files).forEach((file) =>
-                    void uploadFile(file)
+                  Array.from(event.dataTransfer.files).forEach(
+                    (file) => void uploadFile(file),
                   );
                 }}
                 className="flex items-end gap-2 rounded-2xl border border-white/10 bg-white/[0.045] p-2 shadow-lg shadow-black/10"
@@ -2532,7 +2519,7 @@ function WorkspaceApp({
                   onChange={(event) => {
                     const files = Array.from(event.target.files ?? []);
                     files.forEach((file) => void uploadFile(file));
-                    event.currentTarget.value = '';
+                    event.currentTarget.value = "";
                   }}
                 />
                 <button
@@ -2542,17 +2529,15 @@ function WorkspaceApp({
                   className="mb-0.5 rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
                   aria-label={
                     isEncryptedConversation
-                      ? 'Attachments unavailable in encrypted conversation'
-                      : 'Attach files'
+                      ? "Attachments unavailable in encrypted conversation"
+                      : "Attach files"
                   }
                 >
                   <Paperclip className="size-4" />
                 </button>
                 <textarea
                   value={composer}
-                  onChange={(event) =>
-                    onComposerChange(event.target.value)
-                  }
+                  onChange={(event) => onComposerChange(event.target.value)}
                   onPaste={(event) => {
                     const files = Array.from(event.clipboardData.files);
                     if (!isEncryptedConversation && files.length > 0) {
@@ -2563,17 +2548,17 @@ function WorkspaceApp({
                   disabled={!activeRoom || isEncryptedConversation}
                   placeholder={
                     isEncryptedConversation
-                      ? 'Encrypted messaging is not available on web yet'
+                      ? "Encrypted messaging is not available on web yet"
                       : currentChannel
                         ? `Message #${currentChannel.name}…`
                         : currentConversation
                           ? `Message ${currentTitle}…`
-                          : 'Select a conversation'
+                          : "Select a conversation"
                   }
                   className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none placeholder:text-slate-600"
                   onKeyDown={(event) => {
                     if (
-                      event.key === 'Enter' &&
+                      event.key === "Enter" &&
                       !event.shiftKey &&
                       !event.nativeEvent.isComposing
                     ) {
@@ -2591,11 +2576,11 @@ function WorkspaceApp({
                 <button
                   disabled={
                     (!composer.trim() &&
-                      !uploads.some((item) => item.status === 'ready')) ||
+                      !uploads.some((item) => item.status === "ready")) ||
                     uploads.some(
                       (item) =>
-                        item.status === 'uploading' ||
-                        item.status === 'processing'
+                        item.status === "uploading" ||
+                        item.status === "processing",
                     ) ||
                     !activeRoom ||
                     isEncryptedConversation
@@ -2615,7 +2600,7 @@ function WorkspaceApp({
             <div>
               <p className="font-semibold">Details</p>
               <p className="text-xs text-slate-500">
-                {currentWorkspace?.role ?? 'Member'} access
+                {currentWorkspace?.role ?? "Member"} access
               </p>
             </div>
           </div>
@@ -2636,17 +2621,17 @@ function WorkspaceApp({
                     className="flex items-center gap-3 rounded-xl px-2 py-2"
                   >
                     <div className="relative grid size-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-semibold">
-                      {initials(member.displayName) || '?'}
+                      {initials(member.displayName) || "?"}
                       <span
                         className={
-                          'absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[#0b171c] ' +
-                          (member.status === 'online'
-                            ? 'bg-emerald-400'
-                            : member.status === 'idle'
-                              ? 'bg-amber-400'
-                              : member.status === 'do-not-disturb'
-                                ? 'bg-rose-400'
-                                : 'bg-slate-600')
+                          "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[#0b171c] " +
+                          (member.status === "online"
+                            ? "bg-emerald-400"
+                            : member.status === "idle"
+                              ? "bg-amber-400"
+                              : member.status === "do-not-disturb"
+                                ? "bg-rose-400"
+                                : "bg-slate-600")
                         }
                         title={member.status}
                       />
@@ -2658,7 +2643,7 @@ function WorkspaceApp({
                       <p className="truncate text-[10px] text-slate-600">
                         {member.customText
                           ? member.customText
-                          : member.status === 'offline' && member.lastSeenAt
+                          : member.status === "offline" && member.lastSeenAt
                             ? `Last seen ${new Date(member.lastSeenAt).toLocaleString()}`
                             : member.status}
                       </p>
@@ -2807,7 +2792,7 @@ function WorkspaceApp({
                             className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left hover:bg-white/[0.04]"
                           >
                             <div className="grid size-9 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-semibold">
-                              {initials(user.display_name) || '?'}
+                              {initials(user.display_name) || "?"}
                             </div>
                             <div>
                               <p className="text-sm font-medium">
@@ -2842,7 +2827,8 @@ function WorkspaceApp({
           className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-[2px]"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setNotificationsOpen(false);
+            if (event.currentTarget === event.target)
+              setNotificationsOpen(false);
           }}
         >
           <aside
@@ -2883,25 +2869,23 @@ function WorkspaceApp({
                           markNotificationRead.mutate(notification.id);
                         }
                         const payload = notification.payload;
-                        if (typeof payload.channelId === 'string') {
-                          if (typeof payload.workspaceId === 'string') {
+                        if (typeof payload.channelId === "string") {
+                          if (typeof payload.workspaceId === "string") {
                             setWorkspaceId(payload.workspaceId);
                           }
                           setConversationId(null);
                           setChannelId(payload.channelId);
-                        } else if (
-                          typeof payload.conversationId === 'string'
-                        ) {
+                        } else if (typeof payload.conversationId === "string") {
                           setChannelId(null);
                           setConversationId(payload.conversationId);
                         }
                         setNotificationsOpen(false);
                       }}
                       className={
-                        'w-full rounded-2xl border px-4 py-3 text-left transition ' +
+                        "w-full rounded-2xl border px-4 py-3 text-left transition " +
                         (notification.read_at
-                          ? 'border-transparent text-slate-500 hover:bg-white/[0.025]'
-                          : 'border-[#68e0cf]/10 bg-[#68e0cf]/[0.045] text-slate-300')
+                          ? "border-transparent text-slate-500 hover:bg-white/[0.025]"
+                          : "border-[#68e0cf]/10 bg-[#68e0cf]/[0.045] text-slate-300")
                       }
                     >
                       <div className="flex items-center gap-2">
@@ -2916,9 +2900,9 @@ function WorkspaceApp({
                         </span>
                       </div>
                       <p className="mt-2 line-clamp-3 text-sm leading-5">
-                        {typeof notification.payload.preview === 'string'
+                        {typeof notification.payload.preview === "string"
                           ? notification.payload.preview
-                          : 'PulseMesh activity update'}
+                          : "PulseMesh activity update"}
                       </p>
                     </button>
                   ))}
@@ -2994,7 +2978,7 @@ function WorkspaceApp({
                   {(thread.data?.items ?? []).map((reply) => (
                     <div key={reply.id} className="flex gap-3">
                       <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-semibold">
-                        {initials(reply.display_name) || '?'}
+                        {initials(reply.display_name) || "?"}
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-baseline gap-2">
@@ -3003,8 +2987,8 @@ function WorkspaceApp({
                           </span>
                           <span className="text-[10px] text-slate-600">
                             {new Date(reply.created_at).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit'
+                              hour: "2-digit",
+                              minute: "2-digit",
                             })}
                           </span>
                         </div>
@@ -3075,7 +3059,10 @@ function WorkspaceApp({
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#68e0cf]">
                   New conversation
                 </p>
-                <h2 id="new-conversation-title" className="mt-1 text-xl font-semibold">
+                <h2
+                  id="new-conversation-title"
+                  className="mt-1 text-xl font-semibold"
+                >
                   Start a DM or group
                 </h2>
               </div>
@@ -3124,18 +3111,18 @@ function WorkspaceApp({
                         setSelectedMemberIds((current) =>
                           selected
                             ? current.filter((id) => id !== user.id)
-                            : [...current, user.id]
+                            : [...current, user.id],
                         )
                       }
                       className={
-                        'flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition ' +
+                        "flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition " +
                         (selected
-                          ? 'bg-[#68e0cf]/10 text-white'
-                          : 'hover:bg-white/[0.04]')
+                          ? "bg-[#68e0cf]/10 text-white"
+                          : "hover:bg-white/[0.04]")
                       }
                     >
                       <div className="grid size-9 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-semibold">
-                        {initials(user.display_name) || '?'}
+                        {initials(user.display_name) || "?"}
                       </div>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">
@@ -3146,7 +3133,7 @@ function WorkspaceApp({
                         </p>
                       </div>
                       <span className="ml-auto text-xs text-[#68e0cf]">
-                        {selected ? 'Selected' : 'Add'}
+                        {selected ? "Selected" : "Add"}
                       </span>
                     </button>
                   );
@@ -3177,21 +3164,23 @@ function WorkspaceApp({
               <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
                 {createConversation.error instanceof Error
                   ? createConversation.error.message
-                  : 'Could not create conversation'}
+                  : "Could not create conversation"}
               </div>
             )}
 
             <div className="mt-5 flex items-center justify-between gap-3">
               <p className="text-xs text-slate-500">
                 {selectedMemberIds.length === 0
-                  ? 'No people selected'
+                  ? "No people selected"
                   : selectedMemberIds.length === 1
-                    ? 'Direct message'
+                    ? "Direct message"
                     : `${selectedMemberIds.length} people · Group conversation`}
               </p>
               <button
                 type="button"
-                disabled={!selectedMemberIds.length || createConversation.isPending}
+                disabled={
+                  !selectedMemberIds.length || createConversation.isPending
+                }
                 onClick={() => createConversation.mutate()}
                 className="flex items-center gap-2 rounded-2xl bg-[#68e0cf] px-4 py-2.5 text-sm font-semibold text-[#061013] disabled:opacity-40"
               >
@@ -3216,9 +3205,9 @@ function PulseMeshClientInner() {
   async function refreshSession(): Promise<string | null> {
     if (refreshPromiseRef.current) return refreshPromiseRef.current;
 
-    const pending = request<{ accessToken: string }>('/auth/refresh', null, {
-      method: 'POST',
-      body: '{}'
+    const pending = request<{ accessToken: string }>("/auth/refresh", null, {
+      method: "POST",
+      body: "{}",
     })
       .then((result) => {
         setToken(result.accessToken);
@@ -3238,9 +3227,9 @@ function PulseMeshClientInner() {
 
   useEffect(() => {
     let cancelled = false;
-    request<{ accessToken: string }>('/auth/refresh', null, {
-      method: 'POST',
-      body: '{}'
+    request<{ accessToken: string }>("/auth/refresh", null, {
+      method: "POST",
+      body: "{}",
     })
       .then((result) => {
         if (!cancelled) setToken(result.accessToken);
@@ -3271,25 +3260,22 @@ function PulseMeshClientInner() {
 
     const refreshIfNeeded = () => {
       const currentExpiry = tokenExpiresAt(token);
-      if (
-        !currentExpiry ||
-        currentExpiry - Date.now() <= 90_000
-      ) {
+      if (!currentExpiry || currentExpiry - Date.now() <= 90_000) {
         void refreshSession();
       }
     };
 
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') refreshIfNeeded();
+      if (document.visibilityState === "visible") refreshIfNeeded();
     };
 
-    window.addEventListener('focus', refreshIfNeeded);
-    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener("focus", refreshIfNeeded);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener('focus', refreshIfNeeded);
-      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener("focus", refreshIfNeeded);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [token]);
 
@@ -3308,12 +3294,7 @@ function PulseMeshClientInner() {
     return <AuthScreen onAuthenticated={setToken} />;
   }
 
-  return (
-    <WorkspaceApp
-      token={token}
-      onLoggedOut={() => setToken(null)}
-    />
-  );
+  return <WorkspaceApp token={token} onLoggedOut={() => setToken(null)} />;
 }
 
 const queryClient = new QueryClient({
@@ -3321,9 +3302,9 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 15_000,
       refetchOnWindowFocus: false,
-      retry: 1
-    }
-  }
+      retry: 1,
+    },
+  },
 });
 
 export default function PulseMeshClient() {

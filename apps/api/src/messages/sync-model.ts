@@ -1,6 +1,6 @@
 export type MessageSyncRow = {
   sync_cursor: string;
-  event_type: 'message.upsert' | 'message.delete';
+  event_type: "message.upsert" | "message.delete";
   entity_id: string;
   target_user_id: string | null;
   hidden_for_user: boolean;
@@ -22,26 +22,20 @@ export type MessageSyncRow = {
   attachments: unknown[] | null;
 };
 
-export function mapMessageSyncRow(
-  row: MessageSyncRow,
-  userId: string
-) {
-  if (
-    row.target_user_id !== null &&
-    row.target_user_id !== userId
-  ) {
+export function mapMessageSyncRow(row: MessageSyncRow, userId: string) {
+  if (row.target_user_id !== null && row.target_user_id !== userId) {
     return null;
   }
 
   const deleted =
-    row.event_type === 'message.delete' ||
+    row.event_type === "message.delete" ||
     row.hidden_for_user ||
     row.deleted_at !== null ||
     row.id === null;
 
   return {
     cursor: row.sync_cursor,
-    type: deleted ? ('delete' as const) : ('upsert' as const),
+    type: deleted ? ("delete" as const) : ("upsert" as const),
     messageId: row.entity_id,
     message: deleted
       ? null
@@ -50,7 +44,7 @@ export function mapMessageSyncRow(
           clientMessageId: row.client_message_id,
           channelId: row.channel_id,
           conversationId: row.conversation_id,
-          body: row.body ?? '',
+          body: row.body ?? "",
           encryptionVersion: row.encryption_version,
           encryptedPayload: row.encrypted_payload,
           replyToMessageId: row.reply_to_message_id,
@@ -61,8 +55,8 @@ export function mapMessageSyncRow(
             id: row.sender_id,
             username: row.username,
             displayName: row.display_name,
-            avatarUrl: row.avatar_url
-          }
-        }
+            avatarUrl: row.avatar_url,
+          },
+        },
   };
 }
