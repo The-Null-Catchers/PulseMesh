@@ -20,6 +20,7 @@ type UsePulseMeshRealtimeInput = {
   activeRoom: string | null;
   activeMessageKey: string | null;
   workspaceId: string | null;
+  socketRef: MutableRefObject<WebSocket | null>;
   activeCallRef: MutableRefObject<ActiveCall | null>;
   activeCallRoomRef: MutableRefObject<string | null>;
   mediaSessionRef: MutableRefObject<BrowserMeshMediaSession | null>;
@@ -40,6 +41,7 @@ export function usePulseMeshRealtime({
   activeRoom,
   activeMessageKey,
   workspaceId,
+  socketRef,
   activeCallRef,
   activeCallRoomRef,
   mediaSessionRef,
@@ -57,7 +59,6 @@ export function usePulseMeshRealtime({
   const queryClient = useQueryClient();
   const [socketState, setSocketState] = useState<SocketState>("connecting");
   const [typing, setTyping] = useState(false);
-  const socketRef = useRef<WebSocket | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
 
@@ -358,6 +359,7 @@ export function usePulseMeshRealtime({
     setMuted,
     setRemoteStreams,
     setScreenSharing,
+    socketRef,
     token,
     workspaceId,
   ]);
