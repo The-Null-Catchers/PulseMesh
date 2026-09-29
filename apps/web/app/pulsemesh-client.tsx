@@ -543,7 +543,7 @@ function WorkspaceApp({
     return () => {
       cancelled = true;
       if (retryRef.current) clearTimeout(retryRef.current);
-      socketRef.current?.close(1000, 'Channel changed');
+      socketRef.current?.close(1000, 'Conversation changed');
       socketRef.current = null;
       setTyping(false);
     };
@@ -607,7 +607,7 @@ function WorkspaceApp({
       }
     },
     onSettled: () => {
-      if (channelId) {
+      if (activeMessageKey) {
         void queryClient.invalidateQueries({
           queryKey: ['messages', activeMessageKey]
         });
@@ -689,7 +689,11 @@ function WorkspaceApp({
     );
   }
 
-  if (!workspaces.data?.items.length) {
+  if (
+    !workspaces.data?.items.length &&
+    !conversations.isLoading &&
+    !conversations.data?.items.length
+  ) {
     return (
       <main className="grid min-h-screen place-items-center p-6">
         <div className="max-w-lg rounded-[28px] border border-white/10 bg-[#09151a]/90 p-8 text-center">
@@ -698,8 +702,8 @@ function WorkspaceApp({
             Your PulseMesh account is ready
           </h1>
           <p className="mt-3 text-sm leading-6 text-slate-400">
-            Create a workspace through the API or seed the development
-            workspace, then this client will load it immediately.
+            Create a workspace or start a direct conversation, then this
+            client will load it immediately.
           </p>
           <button
             onClick={() => logout.mutate()}
