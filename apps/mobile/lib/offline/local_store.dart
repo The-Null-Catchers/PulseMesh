@@ -375,6 +375,7 @@ class LocalMessageStore {
         await _upsertServerMessage(txn, room, message);
       }
       await _writeSyncState(txn, room, cursor, bootstrapped: true);
+      await _pruneRoom(txn, room);
     });
   }
 
@@ -406,7 +407,37 @@ class LocalMessageStore {
         page.nextAfter,
         bootstrapped: true,
       );
+      await _pruneRoom(txn, room);
     });
+  }
+
+  Future<void> _pruneRoom(
+    DatabaseExecutor db,
+    RoomRef room, {
+    int keep = 500,
+  }) async {
+    await db.rawDelete(
+      '''
+      DELETE FROM cached_messages
+      WHERE room_kind=?
+        AND room_id=?
+        AND status='sent'
+        AND local_id NOT IN (
+          SELECT local_id
+          FROM cached_messages
+          WHERE room_kind=? AND room_id=?
+          ORDER BY created_at DESC,server_id DESC
+          LIMIT ?
+        )
+      ''',
+      [
+        room.kind.wireName,
+        room.id,
+        room.kind.wireName,
+        room.id,
+        keep,
+      ],
+    );
   }
 
   Future<void> _upsertServerMessage(
