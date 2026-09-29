@@ -31,8 +31,8 @@ export async function assertWorkspaceTargetMember(
 
 export async function assertReportTarget(input: {
   workspaceId: string;
-  reportedUserId?: string;
-  messageId?: string;
+  reportedUserId?: string | undefined;
+  messageId?: string | undefined;
 }): Promise<void> {
   if (!input.reportedUserId && !input.messageId) {
     throw new AppError(
