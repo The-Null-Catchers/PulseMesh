@@ -93,6 +93,19 @@ Implemented:
 - reconnect repair without full-history downloads
 - connectivity-triggered queue flush with capped retry backoff
 
-## Phase 8
+## Phase 8 — Security and Polish
 
-Moderation, optional E2EE, observability and final hardening land after offline sync as a separate green-CI slice.
+Implemented:
+
+- reports and moderator queue APIs
+- permission-gated timeout, kick, ban and channel lock operations
+- audited moderator message deletion
+- configurable Redis-backed anti-spam rules
+- durable audit-log query API
+- Prometheus-compatible request, message, WebSocket, presence and queue metrics
+- optional protected metrics endpoint
+- one-to-one E2EE server boundary with public device bundles and atomic one-time pre-key claims
+- ciphertext-aware realtime and offline synchronization
+- explicit metadata and limitation documentation
+
+The E2EE boundary intentionally delegates cryptographic operations to established Signal Protocol libraries; PulseMesh does not ship custom cryptographic primitives.
