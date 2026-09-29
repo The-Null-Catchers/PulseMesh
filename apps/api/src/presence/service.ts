@@ -207,14 +207,21 @@ function pipelineValue(
 
 export async function listWorkspacePresence(
   workspaceId: string
-): Promise<PresenceSnapshot[]> {
+): Promise<Array<PresenceSnapshot & {
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+}>> {
   const members = await pool.query<{
     id: string;
+    username: string;
+    display_name: string;
+    avatar_url: string | null;
     presence_mode: 'online' | 'idle' | 'do-not-disturb';
     status_text: string | null;
     last_seen_at: Date | null;
   }>(
-    'SELECT u.id,u.presence_mode,u.status_text,u.last_seen_at FROM workspace_members wm JOIN users u ON u.id=wm.user_id WHERE wm.workspace_id=$1 ORDER BY u.display_name,u.id',
+    'SELECT u.id,u.username,u.display_name,u.avatar_url,u.presence_mode,u.status_text,u.last_seen_at FROM workspace_members wm JOIN users u ON u.id=wm.user_id WHERE wm.workspace_id=$1 ORDER BY u.display_name,u.id',
     [workspaceId]
   );
 
@@ -233,6 +240,9 @@ export async function listWorkspacePresence(
     const activeWorkspace = pipelineValue(results, base + 2);
     return {
       userId: member.id,
+      username: member.username,
+      displayName: member.display_name,
+      avatarUrl: member.avatar_url,
       status: connectedDevices > 0 ? member.presence_mode : 'offline',
       customText: member.status_text,
       lastSeenAt: member.last_seen_at?.toISOString() ?? null,
