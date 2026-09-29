@@ -1,10 +1,32 @@
 import type { FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
 import { randomUUID } from 'node:crypto';
-import { clientRealtimeMessageSchema, realtimeEventSchema, type RealtimeEvent } from '@pulsemesh/realtime';
-import { canAccessChannel, canAccessConversation, isWorkspaceMember } from '../authorization/service.js';
-import { REALTIME_CHANNEL, publishRealtime, redis, subscriber } from './bus.js';
+import {
+  clientRealtimeMessageSchema,
+  realtimeEventSchema,
+  type RealtimeEvent,
+  type SequencedRealtimeEvent
+} from '@pulsemesh/realtime';
+import {
+  canAccessChannel,
+  canAccessConversation,
+  isWorkspaceMember
+} from '../authorization/service.js';
+import {
+  REALTIME_CHANNEL,
+  latestRealtimeSequence,
+  publishRealtime,
+  redis,
+  replayRealtimeEvents,
+  subscriber
+} from './bus.js';
 import { consumeRealtimeTicket } from './tickets.js';
+import {
+  broadcastPresence,
+  disconnectPresence,
+  sweepExpiredPresence,
+  touchPresence
+} from '../presence/service.js';
 
 interface SocketLike {
   OPEN: number;
@@ -18,9 +40,13 @@ interface Connection {
   socket: SocketLike;
   userId: string;
   rooms: Set<string>;
+  recoveringThrough: number | null;
+  pendingEvents: SequencedRealtimeEvent[];
 }
 
 const connections = new Set<Connection>();
+const TYPING_TTL_MS = 8_000;
+const MAX_PENDING_RECOVERY_EVENTS = 1_000;
 
 async function canAccessRoom(userId: string, room: string): Promise<boolean> {
   const [kind, id] = room.split(':');
@@ -31,8 +57,9 @@ async function canAccessRoom(userId: string, room: string): Promise<boolean> {
   return false;
 }
 
-async function heartbeat(userId: string): Promise<void> {
-  await redis.set('presence:user:' + userId, 'online', 'EX', 70);
+function send(connection: Connection, value: unknown): void {
+  if (connection.socket.readyState !== connection.socket.OPEN) return;
+  connection.socket.send(JSON.stringify(value));
 }
 
 export async function registerRealtimeGateway(app: FastifyInstance): Promise<void> {
@@ -51,12 +78,39 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
 
     for (const connection of connections) {
       if (
-        connection.rooms.has(parsed.data.room) &&
-        connection.socket.readyState === connection.socket.OPEN
+        !connection.rooms.has(parsed.data.room) ||
+        connection.socket.readyState !== connection.socket.OPEN
       ) {
-        connection.socket.send(JSON.stringify(parsed.data));
+        continue;
       }
+
+      if (
+        connection.recoveringThrough !== null &&
+        typeof parsed.data.sequence === 'number'
+      ) {
+        if (parsed.data.sequence <= connection.recoveringThrough) continue;
+
+        if (connection.pendingEvents.length >= MAX_PENDING_RECOVERY_EVENTS) {
+          connection.socket.close(1013, 'Recovery buffer overflow');
+          continue;
+        }
+
+        connection.pendingEvents.push(parsed.data as SequencedRealtimeEvent);
+        continue;
+      }
+
+      connection.socket.send(JSON.stringify(parsed.data));
     }
+  });
+
+  const sweeper = setInterval(() => {
+    void sweepExpiredPresence().catch((error: unknown) => {
+      app.log.error({ err: error }, 'presence sweeper failed');
+    });
+  }, 10_000);
+  sweeper.unref();
+  app.addHook('onClose', async () => {
+    clearInterval(sweeper);
   });
 
   app.get('/realtime', { websocket: true }, async (socket, request) => {
@@ -75,15 +129,20 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
     const connection: Connection = {
       socket: socket as unknown as SocketLike,
       userId: identity.userId,
-      rooms: new Set()
+      rooms: new Set(),
+      recoveringThrough: null,
+      pendingEvents: []
     };
     connections.add(connection);
-    await heartbeat(identity.userId);
 
-    socket.send(JSON.stringify({
+    const becameOnline = await touchPresence(identity.userId, identity.sessionId);
+    if (becameOnline) await broadcastPresence(identity.userId);
+
+    send(connection, {
       type: 'session.ready',
-      occurredAt: new Date().toISOString()
-    }));
+      occurredAt: new Date().toISOString(),
+      latestSequence: await latestRealtimeSequence()
+    });
 
     socket.on('message', async (raw: unknown) => {
       let value: unknown;
@@ -92,11 +151,55 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
       } catch {
         return;
       }
+
       const parsed = clientRealtimeMessageSchema.safeParse(value);
       if (!parsed.success) return;
 
       if (parsed.data.type === 'presence.heartbeat') {
-        await heartbeat(identity.userId);
+        const returnedOnline = await touchPresence(identity.userId, identity.sessionId);
+        if (returnedOnline) await broadcastPresence(identity.userId);
+        return;
+      }
+
+      if (parsed.data.type === 'session.resume') {
+        const rooms = [...new Set(parsed.data.rooms)];
+        const authorizedRooms: string[] = [];
+        for (const room of rooms) {
+          if (await canAccessRoom(identity.userId, room)) {
+            authorizedRooms.push(room);
+          }
+        }
+
+        connection.rooms.clear();
+        for (const room of authorizedRooms) connection.rooms.add(room);
+
+        const throughSequence = await latestRealtimeSequence();
+        connection.recoveringThrough = throughSequence;
+
+        const replay = await replayRealtimeEvents({
+          rooms: authorizedRooms,
+          afterSequence: parsed.data.lastSequence,
+          throughSequence,
+          limit: 500
+        });
+
+        for (const event of replay.events) send(connection, event);
+
+        connection.pendingEvents.sort(
+          (left, right) => left.sequence - right.sequence
+        );
+        for (const event of connection.pendingEvents.splice(0)) {
+          send(connection, event);
+        }
+        connection.recoveringThrough = null;
+
+        send(connection, {
+          type: 'session.resumed',
+          occurredAt: new Date().toISOString(),
+          latestSequence: await latestRealtimeSequence(),
+          replayedCount: replay.events.length,
+          truncated: replay.truncated
+        });
         return;
       }
 
@@ -113,19 +216,46 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
       }
 
       if (!connection.rooms.has(parsed.data.room)) return;
+
+      if (parsed.data.type === 'typing.started') {
+        const expiresAt = new Date(Date.now() + TYPING_TTL_MS).toISOString();
+        await redis.set(
+          'typing:' + parsed.data.room + ':' + identity.userId,
+          '1',
+          'PX',
+          TYPING_TTL_MS
+        );
+        const event: RealtimeEvent = {
+          id: randomUUID(),
+          type: 'typing.started',
+          room: parsed.data.room,
+          occurredAt: new Date().toISOString(),
+          payload: { userId: identity.userId, expiresAt }
+        };
+        await publishRealtime(event);
+        return;
+      }
+
+      await redis.del('typing:' + parsed.data.room + ':' + identity.userId);
       const event: RealtimeEvent = {
         id: randomUUID(),
-        type: parsed.data.type,
+        type: 'typing.stopped',
         room: parsed.data.room,
         occurredAt: new Date().toISOString(),
-        payload: { userId: identity.userId }
+        payload: { userId: identity.userId, expiresAt: null }
       };
       await publishRealtime(event);
     });
 
     socket.on('close', () => {
       connections.delete(connection);
-      void redis.del('presence:user:' + identity.userId);
+      void disconnectPresence(identity.userId, identity.sessionId)
+        .then(async (becameOffline) => {
+          if (becameOffline) await broadcastPresence(identity.userId);
+        })
+        .catch((error: unknown) => {
+          app.log.error({ err: error }, 'presence disconnect failed');
+        });
     });
   });
 }

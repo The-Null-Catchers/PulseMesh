@@ -3,7 +3,8 @@ import { z } from 'zod';
 const base = {
   id: z.string().uuid(),
   room: z.string().min(1),
-  occurredAt: z.string()
+  occurredAt: z.string(),
+  sequence: z.number().int().nonnegative().optional()
 };
 
 export const realtimeEventSchema = z.discriminatedUnion('type', [
@@ -46,13 +47,18 @@ export const realtimeEventSchema = z.discriminatedUnion('type', [
       userId: z.string().uuid(),
       status: z.enum(['online', 'idle', 'do-not-disturb', 'offline']),
       customText: z.string().nullable(),
-      lastSeenAt: z.string().nullable()
+      lastSeenAt: z.string().nullable(),
+      connectedDevices: z.number().int().nonnegative(),
+      activeWorkspaceId: z.string().uuid().nullable()
     })
   }),
   z.object({
     ...base,
     type: z.enum(['typing.started', 'typing.stopped']),
-    payload: z.object({ userId: z.string().uuid() })
+    payload: z.object({
+      userId: z.string().uuid(),
+      expiresAt: z.string().nullable()
+    })
   }),
   z.object({
     ...base,
@@ -72,10 +78,35 @@ export const realtimeEventSchema = z.discriminatedUnion('type', [
 ]);
 
 export type RealtimeEvent = z.infer<typeof realtimeEventSchema>;
+export type SequencedRealtimeEvent = RealtimeEvent & { sequence: number };
+
+export const realtimeControlMessageSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('session.ready'),
+    occurredAt: z.string(),
+    latestSequence: z.number().int().nonnegative()
+  }),
+  z.object({
+    type: z.literal('session.resumed'),
+    occurredAt: z.string(),
+    latestSequence: z.number().int().nonnegative(),
+    replayedCount: z.number().int().nonnegative(),
+    truncated: z.boolean()
+  })
+]);
+
+export type RealtimeControlMessage = z.infer<typeof realtimeControlMessageSchema>;
 
 export const clientRealtimeMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('room.subscribe'), room: z.string().min(1) }),
   z.object({ type: z.literal('room.unsubscribe'), room: z.string().min(1) }),
   z.object({ type: z.literal('presence.heartbeat') }),
+  z.object({
+    type: z.literal('session.resume'),
+    lastSequence: z.number().int().nonnegative(),
+    rooms: z.array(z.string().min(1)).max(100)
+  }),
   z.object({ type: z.enum(['typing.started', 'typing.stopped']), room: z.string().min(1) })
 ]);
+
+export type ClientRealtimeMessage = z.infer<typeof clientRealtimeMessageSchema>;

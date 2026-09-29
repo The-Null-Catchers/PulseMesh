@@ -20,6 +20,7 @@ import { coreMessagingRoutes } from './messages/core-routes.js';
 import { channelManagementRoutes } from './channels/management.js';
 import { conversationManagementRoutes } from './conversations/management.js';
 import { healthRoutes } from './health/routes.js';
+import { presenceRoutes } from './presence/routes.js';
 import { redis } from './realtime/bus.js';
 import { realtimeTicketRoutes } from './realtime/tickets.js';
 import { registerRealtimeGateway } from './realtime/gateway.js';
@@ -85,6 +86,7 @@ export async function buildApp() {
   await coreMessagingRoutes(app);
   await channelManagementRoutes(app);
   await conversationManagementRoutes(app);
+  await presenceRoutes(app);
   await realtimeTicketRoutes(app);
   await registerRealtimeGateway(app);
   await healthRoutes(app);
