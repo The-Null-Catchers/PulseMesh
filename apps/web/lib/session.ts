@@ -1,16 +1,10 @@
-export function decodeTokenPayload(
-  token: string
-): Record<string, unknown> | null {
+export function decodeTokenPayload(token: string): Record<string, unknown> | null {
   try {
     const [, payload] = token.split('.');
     if (!payload) return null;
 
-    const normalized = payload
-      .replace(/-/g, '+')
-      .replace(/_/g, '/');
-    const parsed = JSON.parse(
-      atob(normalized)
-    ) as Record<string, unknown>;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const parsed = JSON.parse(atob(normalized)) as Record<string, unknown>;
 
     return parsed;
   } catch {
