@@ -58,6 +58,7 @@ import { useMessageActions } from "../hooks/use-message-actions";
 import { useNotifications } from "../hooks/use-notifications";
 import { usePulseMeshCall } from "../hooks/use-pulsemesh-call";
 import { usePulseMeshRealtime } from "../hooks/use-pulsemesh-realtime";
+import { useTypingEmitter } from "../hooks/use-typing-emitter";
 import { request, setAccessTokenRefresher } from "../lib/api";
 import {
   conversationLabel,
@@ -315,6 +316,11 @@ function WorkspaceApp({
     setCallError,
   });
 
+  const { updateTyping, stopTyping } = useTypingEmitter({
+    room: activeRoom,
+    socketRef,
+  });
+
   const {
     sendMessage,
     retryFailedMessage,
@@ -442,24 +448,12 @@ function WorkspaceApp({
       clientMessageId: crypto.randomUUID(),
       attachmentIds: readyUploads.map((item) => item.fileId!),
     });
-    socketRef.current?.send(
-      JSON.stringify({
-        type: "typing.stopped",
-        room: activeRoom,
-      }),
-    );
+    stopTyping();
   }
 
   function onComposerChange(value: string) {
     setComposer(value);
-    if (activeRoom && socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(
-        JSON.stringify({
-          type: value ? "typing.started" : "typing.stopped",
-          room: activeRoom,
-        }),
-      );
-    }
+    updateTyping(value);
   }
 
   if (workspaces.isLoading) {
