@@ -13,6 +13,7 @@ import {
   Hash,
   Loader2,
   LogOut,
+  MessageCircle,
   Plus,
   Search,
   Send,
@@ -58,10 +59,27 @@ type Channel = {
   position: number;
 };
 
+type ConversationMember = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+};
+
+type Conversation = {
+  id: string;
+  kind: 'direct' | 'group';
+  name: string | null;
+  avatar_url: string | null;
+  encryption_mode: 'none' | 'e2ee_v1';
+  members: ConversationMember[];
+};
+
 type Message = {
   id: string;
   clientMessageId: string | null;
-  channelId: string;
+  channelId: string | null;
+  conversationId: string | null;
   body: string;
   createdAt: string;
   editedAt: string | null;
@@ -330,6 +348,7 @@ function WorkspaceApp({
   const queryClient = useQueryClient();
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [channelId, setChannelId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [composer, setComposer] = useState('');
   const [socketState, setSocketState] = useState<
     'connecting' | 'ready' | 'reconnecting'
@@ -360,30 +379,44 @@ function WorkspaceApp({
       )
   });
 
+  const conversations = useQuery({
+    queryKey: ['conversations'],
+    queryFn: () =>
+      request<{ items: Conversation[] }>('/conversations', token)
+  });
+
   useEffect(() => {
     const textChannels =
       channels.data?.items.filter((item) => item.kind === 'text') ?? [];
     if (
-      textChannels.length > 0 &&
-      (!channelId ||
-        !textChannels.some((item) => item.id === channelId))
+      !channelId &&
+      !conversationId &&
+      textChannels.length > 0
     ) {
       setChannelId(textChannels[0]!.id);
     }
-  }, [channelId, channels.data]);
+  }, [channelId, conversationId, channels.data]);
+
+  const activeRoom = channelId
+    ? `channel:${channelId}`
+    : conversationId
+      ? `conversation:${conversationId}`
+      : null;
+  const activeMessageKey = channelId ?? conversationId;
+  const activeMessagesPath = channelId
+    ? `/channels/${channelId}/messages?limit=50`
+    : conversationId
+      ? `/conversations/${conversationId}/messages?limit=50`
+      : null;
 
   const messages = useQuery({
-    queryKey: ['messages', channelId],
-    enabled: Boolean(channelId),
-    queryFn: () =>
-      request<Page<Message>>(
-        `/channels/${channelId}/messages?limit=50`,
-        token
-      )
+    queryKey: ['messages', activeMessageKey],
+    enabled: Boolean(activeMessagesPath),
+    queryFn: () => request<Page<Message>>(activeMessagesPath!, token)
   });
 
   useEffect(() => {
-    if (!channelId) return;
+    if (!activeRoom || !activeMessageKey) return;
 
     let cancelled = false;
 
@@ -424,7 +457,7 @@ function WorkspaceApp({
               JSON.stringify({
                 type: 'session.resume',
                 lastSequence: Number.isFinite(sequence) ? sequence : 0,
-                rooms: [`channel:${channelId}`]
+                rooms: [activeRoom]
               })
             );
             return;
@@ -434,19 +467,19 @@ function WorkspaceApp({
             socket.send(
               JSON.stringify({
                 type: 'room.subscribe',
-                room: `channel:${channelId}`
+                room: activeRoom
               })
             );
             socket.send(
               JSON.stringify({
                 type: 'view.active',
-                room: `channel:${channelId}`
+                room: activeRoom
               })
             );
             setSocketState('ready');
             if (event.truncated) {
               void queryClient.invalidateQueries({
-                queryKey: ['messages', channelId]
+                queryKey: ['messages', activeMessageKey]
               });
             }
             return;
@@ -460,22 +493,22 @@ function WorkspaceApp({
           }
 
           if (
-            event.room === `channel:${channelId}` &&
+            event.room === activeRoom &&
             event.type.startsWith('message.')
           ) {
             void queryClient.invalidateQueries({
-              queryKey: ['messages', channelId]
+              queryKey: ['messages', activeMessageKey]
             });
           }
 
           if (
-            event.room === `channel:${channelId}` &&
+            event.room === activeRoom &&
             event.type === 'typing.started'
           ) {
             setTyping(true);
           }
           if (
-            event.room === `channel:${channelId}` &&
+            event.room === activeRoom &&
             event.type === 'typing.stopped'
           ) {
             setTyping(false);
@@ -514,7 +547,7 @@ function WorkspaceApp({
       socketRef.current = null;
       setTyping(false);
     };
-  }, [channelId, queryClient, token]);
+  }, [activeMessageKey, activeRoom, queryClient, token]);
 
   const sendMessage = useMutation({
     mutationFn: async ({
@@ -524,9 +557,12 @@ function WorkspaceApp({
       body: string;
       clientMessageId: string;
     }) => {
-      if (!channelId) throw new Error('No channel selected');
+      if (!activeMessageKey) throw new Error('No conversation selected');
+      const path = channelId
+        ? `/channels/${channelId}/messages`
+        : `/conversations/${conversationId}/messages`;
       return request(
-        `/channels/${channelId}/messages`,
+        path,
         token,
         {
           method: 'POST',
@@ -539,14 +575,15 @@ function WorkspaceApp({
       );
     },
     onMutate: async ({ body, clientMessageId }) => {
-      if (!channelId) return;
-      const key = ['messages', channelId] as const;
+      if (!activeMessageKey) return;
+      const key = ['messages', activeMessageKey] as const;
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<Page<Message>>(key);
       const optimistic: Message = {
         id: clientMessageId,
         clientMessageId,
         channelId,
+        conversationId,
         body,
         createdAt: new Date().toISOString(),
         editedAt: null,
@@ -572,7 +609,7 @@ function WorkspaceApp({
     onSettled: () => {
       if (channelId) {
         void queryClient.invalidateQueries({
-          queryKey: ['messages', channelId]
+          queryKey: ['messages', activeMessageKey]
         });
       }
     }
@@ -593,6 +630,14 @@ function WorkspaceApp({
   const currentChannel = channels.data?.items.find(
     (item) => item.id === channelId
   );
+  const currentConversation = conversations.data?.items.find(
+    (item) => item.id === conversationId
+  );
+  const currentTitle = currentChannel?.name ??
+    currentConversation?.name ??
+    (currentConversation?.kind === 'direct'
+      ? currentConversation.members.map((member) => member.displayName).join(', ')
+      : 'Select a conversation');
   const textChannels =
     channels.data?.items.filter((item) => item.kind === 'text') ?? [];
   const voiceChannels =
@@ -605,7 +650,7 @@ function WorkspaceApp({
   function submitMessage(event: FormEvent) {
     event.preventDefault();
     const body = composer.trim();
-    if (!body || !channelId || sendMessage.isPending) return;
+    if (!body || !activeRoom || sendMessage.isPending) return;
     setComposer('');
     sendMessage.mutate({
       body,
@@ -614,7 +659,7 @@ function WorkspaceApp({
     socketRef.current?.send(
       JSON.stringify({
         type: 'typing.stopped',
-        room: `channel:${channelId}`
+        room: activeRoom
       })
     );
   }
@@ -622,7 +667,7 @@ function WorkspaceApp({
   function onComposerChange(value: string) {
     setComposer(value);
     if (
-      channelId &&
+      activeRoom &&
       socketRef.current?.readyState === WebSocket.OPEN
     ) {
       socketRef.current.send(
@@ -630,7 +675,7 @@ function WorkspaceApp({
           type: value
             ? 'typing.started'
             : 'typing.stopped',
-          room: `channel:${channelId}`
+          room: activeRoom
         })
       );
     }
@@ -679,6 +724,7 @@ function WorkspaceApp({
               key={workspace.id}
               onClick={() => {
                 setWorkspaceId(workspace.id);
+                setConversationId(null);
                 setChannelId(null);
               }}
               className={
@@ -736,7 +782,10 @@ function WorkspaceApp({
               {textChannels.map((channel) => (
                 <button
                   key={channel.id}
-                  onClick={() => setChannelId(channel.id)}
+                  onClick={() => {
+                    setConversationId(null);
+                    setChannelId(channel.id);
+                  }}
                   className={
                     'flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm ' +
                     (channel.id === channelId
@@ -749,6 +798,34 @@ function WorkspaceApp({
                 </button>
               ))}
             </div>
+            <div className="mb-2 mt-6 flex items-center justify-between px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Messages
+              <Plus className="size-3.5" />
+            </div>
+            <div className="space-y-1">
+              {(conversations.data?.items ?? []).slice(0, 12).map((conversation) => {
+                const label = conversation.name ?? conversation.members.map((member) => member.displayName).join(', ');
+                return (
+                  <button
+                    key={conversation.id}
+                    onClick={() => {
+                      setChannelId(null);
+                      setConversationId(conversation.id);
+                    }}
+                    className={
+                      'flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm ' +
+                      (conversation.id === conversationId
+                        ? 'bg-[linear-gradient(90deg,rgba(115,167,255,.11),rgba(104,224,207,.05))] text-white'
+                        : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200')
+                    }
+                  >
+                    <MessageCircle className="size-4 opacity-60" />
+                    <span className="truncate">{label || 'Conversation'}</span>
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="mb-2 mt-6 flex items-center justify-between px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
               Voice
               <Plus className="size-3.5" />
@@ -774,14 +851,22 @@ function WorkspaceApp({
         <section className="flex min-w-0 flex-col bg-[#0b171c]/70">
           <header className="flex h-16 items-center gap-3 border-b border-white/8 px-4 md:px-5">
             <div className="grid size-9 place-items-center rounded-xl bg-white/[0.04]">
-              <Hash className="size-4 text-[#82e9dc]" />
+              {currentConversation ? (
+                <MessageCircle className="size-4 text-[#82e9dc]" />
+              ) : (
+                <Hash className="size-4 text-[#82e9dc]" />
+              )}
             </div>
             <div className="min-w-0">
               <h1 className="font-semibold">
-                {currentChannel?.name ?? 'Select a channel'}
+                {currentTitle}
               </h1>
               <p className="truncate text-xs text-slate-500">
-                {currentChannel?.topic ?? 'Realtime team conversation'}
+                {currentConversation
+                  ? currentConversation.kind === 'direct'
+                    ? 'Direct message'
+                    : `${currentConversation.members.length} participants`
+                  : currentChannel?.topic ?? 'Realtime team conversation'}
               </p>
             </div>
             <div className="ml-auto flex items-center gap-1">
@@ -884,11 +969,13 @@ function WorkspaceApp({
                     onComposerChange(event.target.value)
                   }
                   rows={1}
-                  disabled={!channelId}
+                  disabled={!activeRoom}
                   placeholder={
                     currentChannel
                       ? `Message #${currentChannel.name}…`
-                      : 'Select a channel'
+                      : currentConversation
+                        ? `Message ${currentTitle}…`
+                        : 'Select a conversation'
                   }
                   className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none placeholder:text-slate-600"
                   onKeyDown={(event) => {
@@ -909,7 +996,7 @@ function WorkspaceApp({
                   <Smile className="size-4" />
                 </button>
                 <button
-                  disabled={!composer.trim() || !channelId}
+                  disabled={!composer.trim() || !activeRoom}
                   className="mb-0.5 grid size-9 place-items-center rounded-xl bg-[#68e0cf] text-[#061013] disabled:opacity-40"
                   aria-label="Send"
                 >
