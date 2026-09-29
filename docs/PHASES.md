@@ -4,7 +4,7 @@ PulseMesh evolves in buildable slices rather than one oversized feature dump.
 
 ## Phase 1 — Foundation
 
-Implemented in PR #1:
+Implemented:
 
 - monorepo and shared contracts
 - PostgreSQL, Redis, MinIO and Coturn development environment
@@ -14,36 +14,41 @@ Implemented in PR #1:
 
 ## Phase 2 — Core Messaging
 
-Working slices included in PR #1:
+Implemented:
 
 - text channels
 - direct and group conversations
 - cursor history
-- optimistic idempotency through client_message_id
-- replies
+- optimistic idempotency through `client_message_id`
+- replies and threads
 - edit history
-- soft deletion
+- soft deletion and delete-for-self
 - reactions
 - efficient read state
-
-Threads, pins, forwarding and bookmarks extend these message primitives.
+- pins, forwarding, bookmarks and channel preferences
 
 ## Phase 3 — Realtime
 
-Working slices included in PR #1:
+Implemented in the Phase 3 hardening slice:
 
 - one-time WebSocket tickets
 - authorized room subscriptions
 - Redis Pub/Sub fanout across API replicas
-- typing events
-- heartbeat presence foundation
-- reconnect model documented around REST reconciliation
+- monotonic server event sequence
+- bounded per-room reconnect replay
+- replay buffering so live packets do not interleave with recovered history
+- multi-device presence leases
+- persisted custom presence preference
+- workspace presence snapshots
+- distributed offline expiry detection
+- typing TTL and client-side expiry contract
+- reconnecting SDK with exponential backoff, room restoration and deduplication
 
-Per-device presence aggregation and richer recovery metadata remain follow-up work.
+Durable REST synchronization remains the final fallback when the temporary replay window cannot cover a disconnect.
 
 ## Phase 4 — Files and Notifications
 
-Foundation included in PR #1:
+Foundation already exists:
 
 - signed S3-compatible uploads
 - MinIO local storage
@@ -51,8 +56,15 @@ Foundation included in PR #1:
 - BullMQ notification worker
 - in-app notification data model and preferences
 
-Thumbnail, audio, push and Web Push processors remain follow-up jobs.
+Next work:
+
+- image thumbnail and preview jobs
+- attachment finalization and validation
+- link preview worker with SSRF protection
+- voice-message processing
+- FCM and Web Push delivery
+- duplicate-suppression rules for actively viewed conversations
 
 ## Phases 5–8
 
-The WebRTC, offline sync, moderation, E2EE and observability documents define stable boundaries for subsequent PRs. These features should be implemented after the foundation CI is green so each phase remains reviewable and deployable.
+The WebRTC, offline sync, moderation, E2EE and observability documents define stable boundaries for subsequent PRs. Each phase should land only after CI for the previous slice is green so the repository remains deployable and reviewable.
