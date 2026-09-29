@@ -23,14 +23,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: pnpm install --no-frozen-lockfile
-      - name: Check formatting for maintained CI and web test files
-        run: >-
-          pnpm exec prettier --check
-          .github/workflows/ci.yml
-          apps/web/package.json
-          apps/web/lib/session.ts
-          apps/web/lib/session.test.ts
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
