@@ -65,6 +65,12 @@ export async function publishRealtime(
   return enriched;
 }
 
+export async function publishEphemeralRealtime(
+  event: RealtimeEvent
+): Promise<void> {
+  await publisher.publish(REALTIME_CHANNEL, JSON.stringify(event));
+}
+
 export async function latestRealtimeSequence(): Promise<number> {
   const value = await redis.get(REALTIME_SEQUENCE_KEY);
   return value ? Number(value) : 0;

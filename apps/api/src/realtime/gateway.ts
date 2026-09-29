@@ -26,6 +26,7 @@ import {
 import {
   REALTIME_CHANNEL,
   latestRealtimeSequence,
+  publishEphemeralRealtime,
   publishRealtime,
   redis,
   replayRealtimeEvents,
@@ -389,84 +390,98 @@ export async function registerRealtimeGateway(
         }
 
         if (parsed.data.type === 'call.signal') {
-          const context = await signalingContext({
-            callId: parsed.data.callId,
-            userId: identity.userId,
-            sessionId: identity.sessionId,
-            targetParticipantId:
-              parsed.data.targetParticipantId
-          });
-
-          if (!context.target.session_id) return;
-
-          const event: RealtimeEvent = {
-            id: randomUUID(),
-            type: 'call.signal',
-            room:
-              'session:' + context.target.session_id,
-            occurredAt: new Date().toISOString(),
-            payload: {
+          try {
+            const context = await signalingContext({
               callId: parsed.data.callId,
-              fromParticipantId: context.sender.id,
-              fromUserId: identity.userId,
-              signal: parsed.data.signal
-            }
-          };
-          await publishRealtime(event);
+              userId: identity.userId,
+              sessionId: identity.sessionId,
+              targetParticipantId:
+                parsed.data.targetParticipantId
+            });
+
+            if (!context.target.session_id) return;
+
+            const event: RealtimeEvent = {
+              id: randomUUID(),
+              type: 'call.signal',
+              room:
+                'session:' + context.target.session_id,
+              occurredAt: new Date().toISOString(),
+              payload: {
+                callId: parsed.data.callId,
+                fromParticipantId: context.sender.id,
+                fromUserId: identity.userId,
+                signal: parsed.data.signal
+              }
+            };
+            await publishEphemeralRealtime(event);
+          } catch (error) {
+            app.log.debug(
+              { err: error, callId: parsed.data.callId },
+              'rejected call signaling event'
+            );
+          }
           return;
         }
 
         if (parsed.data.type === 'call.speaking') {
-          const participant =
-            await activeParticipantForSession(
-              parsed.data.callId,
-              identity.userId,
-              identity.sessionId
-            );
-          if (!participant) return;
+          try {
+            const participant =
+              await activeParticipantForSession(
+                parsed.data.callId,
+                identity.userId,
+                identity.sessionId
+              );
+            if (!participant) return;
 
-          const call = await getCallContext(
-            parsed.data.callId
-          );
-          const expiresAt = parsed.data.speaking
-            ? new Date(
-                Date.now() + SPEAKING_TTL_MS
-              ).toISOString()
-            : null;
-
-          if (parsed.data.speaking) {
-            await redis.set(
-              'call:speaking:' +
-                parsed.data.callId +
-                ':' +
-                participant.id,
-              '1',
-              'PX',
-              SPEAKING_TTL_MS
+            const call = await getCallContext(
+              parsed.data.callId
             );
-          } else {
-            await redis.del(
-              'call:speaking:' +
-                parsed.data.callId +
-                ':' +
-                participant.id
+            const expiresAt = parsed.data.speaking
+              ? new Date(
+                  Date.now() + SPEAKING_TTL_MS
+                ).toISOString()
+              : null;
+
+            if (parsed.data.speaking) {
+              await redis.set(
+                'call:speaking:' +
+                  parsed.data.callId +
+                  ':' +
+                  participant.id,
+                '1',
+                'PX',
+                SPEAKING_TTL_MS
+              );
+            } else {
+              await redis.del(
+                'call:speaking:' +
+                  parsed.data.callId +
+                  ':' +
+                  participant.id
+              );
+            }
+
+            const event: RealtimeEvent = {
+              id: randomUUID(),
+              type: 'call.speaking',
+              room: callDestinationRoom(call),
+              occurredAt: new Date().toISOString(),
+              payload: {
+                callId: parsed.data.callId,
+                participantId: participant.id,
+                userId: identity.userId,
+                speaking: parsed.data.speaking,
+                expiresAt
+              }
+            };
+            await publishEphemeralRealtime(event);
+          } catch (error) {
+            app.log.debug(
+              { err: error, callId: parsed.data.callId },
+              'rejected speaking event'
             );
           }
-
-          const event: RealtimeEvent = {
-            id: randomUUID(),
-            type: 'call.speaking',
-            room: callDestinationRoom(call),
-            occurredAt: new Date().toISOString(),
-            payload: {
-              callId: parsed.data.callId,
-              participantId: participant.id,
-              userId: identity.userId,
-              speaking: parsed.data.speaking,
-              expiresAt
-            }
-          };
-          await publishRealtime(event);
           return;
         }
 

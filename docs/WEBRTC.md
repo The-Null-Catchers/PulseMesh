@@ -24,11 +24,11 @@ Each authenticated socket is automatically subscribed to two private rooms:
 - `user:<userId>`
 - `session:<sessionId>`
 
-Offers, answers and ICE candidates target a concrete call participant and are delivered only to its authenticated session room. They are not written to PostgreSQL and are not broadcast to every member of a channel.
+Offers, answers and ICE candidates target a concrete call participant and are delivered only to its authenticated session room. They are not written to PostgreSQL, are not placed in the reconnect replay buffer, and are not broadcast to every member of a channel.
 
 The sender must have an active participant row for the same call. Target participant membership is revalidated server-side.
 
-Speaking state is an ephemeral room event with a short Redis TTL.
+Speaking state is an ephemeral room event with a short Redis TTL and is never replayed after reconnect.
 
 ## ICE and TURN
 
