@@ -24,39 +24,10 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --no-frozen-lockfile
-      - name: Promote strict CI baseline
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path(".github/workflows/ci.yml")
-          lines = path.read_text().splitlines()
-
-          lines = [
-              line.replace(
-                  "pnpm install --no-frozen-lockfile",
-                  "pnpm install --frozen-lockfile",
-              )
-              for line in lines
-          ]
-
-          start = next(
-              i
-              for i, line in enumerate(lines)
-              if "Check formatting for maintained CI and web test files" in line
-          )
-          end = next(
-              i
-              for i, line in enumerate(lines[start + 1 :], start + 1)
-              if "pnpm typecheck" in line
-          )
-
-          lines[start:end] = ["      - run: pnpm format:check"]
-          path.write_text("\n".join(lines) + "\n")
-          PY
       - run: pnpm exec prettier --write .
       - name: Commit canonical baseline
         run: |
+          git checkout -- .github/workflows/ci.yml .github/workflows/generate-baseline.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
