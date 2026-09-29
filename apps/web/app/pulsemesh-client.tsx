@@ -120,6 +120,43 @@ type Message = {
   failed?: boolean;
 };
 
+type SearchMessage = {
+  id: string;
+  body: string;
+  channel_id: string | null;
+  conversation_id: string | null;
+  created_at: string;
+  username: string;
+  display_name: string;
+};
+
+type SearchChannel = {
+  id: string;
+  name: string;
+  workspace_id: string;
+};
+
+type SearchResponse = {
+  messages: SearchMessage[];
+  users: SearchUser[];
+  channels: SearchChannel[];
+};
+
+type NotificationItem = {
+  id: string;
+  kind: string;
+  payload: {
+    preview?: string;
+    messageId?: string | null;
+    channelId?: string | null;
+    conversationId?: string | null;
+    workspaceId?: string | null;
+    [key: string]: unknown;
+  };
+  read_at: string | null;
+  created_at: string;
+};
+
 type Page<T> = { items: T[]; nextCursor: string | null };
 
 async function request<T>(
@@ -387,6 +424,9 @@ function WorkspaceApp({
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editBody, setEditBody] = useState('');
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [socketState, setSocketState] = useState<
     'connecting' | 'ready' | 'reconnecting'
   >('connecting');
@@ -400,6 +440,21 @@ function WorkspaceApp({
     queryFn: () =>
       request<{ items: Workspace[] }>('/workspaces', token)
   });
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+      if (event.key === 'Escape') {
+        setSearchOpen(false);
+        setNotificationsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   useEffect(() => {
     const first = workspaces.data?.items[0];
@@ -488,6 +543,22 @@ function WorkspaceApp({
     queryKey: ['messages', activeMessageKey],
     enabled: Boolean(activeMessagesPath),
     queryFn: () => request<Page<Message>>(activeMessagesPath!, token)
+  });
+
+  const searchResults = useQuery({
+    queryKey: ['global-search', searchQuery],
+    enabled: searchOpen && searchQuery.trim().length >= 2,
+    queryFn: () =>
+      request<SearchResponse>(
+        `/search?q=${encodeURIComponent(searchQuery.trim())}&limit=20`,
+        token
+      )
+  });
+
+  const notifications = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () =>
+      request<{ items: NotificationItem[] }>('/notifications', token)
   });
 
   const thread = useQuery({
@@ -826,6 +897,26 @@ function WorkspaceApp({
       )
   });
 
+  const markNotificationRead = useMutation({
+    mutationFn: (notificationId: string) =>
+      request(`/notifications/${notificationId}/read`, token, {
+        method: 'POST',
+        body: '{}'
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+  });
+
+  const markAllNotificationsRead = useMutation({
+    mutationFn: () =>
+      request('/notifications/read-all', token, {
+        method: 'POST',
+        body: '{}'
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+  });
+
   const logout = useMutation({
     mutationFn: () =>
       request('/auth/logout', token, {
@@ -857,6 +948,9 @@ function WorkspaceApp({
     () => [...(messages.data?.items ?? [])].reverse(),
     [messages.data]
   );
+  const unreadNotificationCount = (notifications.data?.items ?? []).filter(
+    (item) => !item.read_at
+  ).length;
 
   function submitMessage(event: FormEvent) {
     event.preventDefault();
@@ -980,7 +1074,11 @@ function WorkspaceApp({
             </div>
           </div>
           <div className="p-3">
-            <button className="flex w-full items-center gap-2 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2 text-left text-sm text-slate-400">
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              className="flex w-full items-center gap-2 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2 text-left text-sm text-slate-400"
+            >
               <Search className="size-4" />
               Search workspace
               <span className="ml-auto rounded-md border border-white/8 px-1.5 py-0.5 text-[10px]">
@@ -1103,11 +1201,26 @@ function WorkspaceApp({
                 )}
                 {socketState}
               </div>
-              <button className="rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white">
+              <button
+                type="button"
+                onClick={() => setSearchOpen(true)}
+                className="rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white"
+                aria-label="Search"
+              >
                 <Search className="size-4" />
               </button>
-              <button className="rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white">
+              <button
+                type="button"
+                onClick={() => setNotificationsOpen(true)}
+                className="relative rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white"
+                aria-label="Notifications"
+              >
                 <Bell className="size-4" />
+                {unreadNotificationCount > 0 && (
+                  <span className="absolute right-0.5 top-0.5 grid min-w-4 place-items-center rounded-full bg-[#68e0cf] px-1 text-[9px] font-bold leading-4 text-[#061013]">
+                    {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                  </span>
+                )}
               </button>
             </div>
           </header>
@@ -1388,6 +1501,272 @@ function WorkspaceApp({
           </div>
         </aside>
       </div>
+      {searchOpen && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-start bg-black/55 p-4 pt-[8vh] backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setSearchOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Global search"
+            className="w-full max-w-2xl overflow-hidden rounded-[28px] border border-white/10 bg-[#09151a] shadow-2xl shadow-black/50"
+          >
+            <div className="flex items-center gap-3 border-b border-white/8 px-4">
+              <Search className="size-5 text-[#68e0cf]" />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                autoFocus
+                placeholder="Search messages, channels and people…"
+                className="w-full bg-transparent py-4 text-base outline-none placeholder:text-slate-600"
+              />
+              <button
+                type="button"
+                onClick={() => setSearchOpen(false)}
+                className="rounded-xl border border-white/8 px-3 py-1.5 text-xs text-slate-500"
+              >
+                Esc
+              </button>
+            </div>
+
+            <div className="max-h-[65vh] overflow-y-auto p-3">
+              {searchQuery.trim().length < 2 ? (
+                <div className="py-12 text-center text-sm text-slate-600">
+                  Type at least 2 characters to search PulseMesh.
+                </div>
+              ) : searchResults.isLoading ? (
+                <div className="grid h-36 place-items-center">
+                  <Loader2 className="size-5 animate-spin text-[#68e0cf]" />
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {(searchResults.data?.channels ?? []).length > 0 && (
+                    <section>
+                      <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+                        Channels
+                      </p>
+                      <div className="space-y-1">
+                        {(searchResults.data?.channels ?? []).map((channel) => (
+                          <button
+                            key={channel.id}
+                            type="button"
+                            onClick={() => {
+                              setWorkspaceId(channel.workspace_id);
+                              setConversationId(null);
+                              setChannelId(channel.id);
+                              setSearchOpen(false);
+                            }}
+                            className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left hover:bg-white/[0.04]"
+                          >
+                            <Hash className="size-4 text-[#68e0cf]" />
+                            <span className="text-sm">{channel.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {(searchResults.data?.messages ?? []).length > 0 && (
+                    <section>
+                      <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+                        Messages
+                      </p>
+                      <div className="space-y-1">
+                        {(searchResults.data?.messages ?? []).map((message) => (
+                          <button
+                            key={message.id}
+                            type="button"
+                            onClick={() => {
+                              if (message.channel_id) {
+                                setConversationId(null);
+                                setChannelId(message.channel_id);
+                              } else if (message.conversation_id) {
+                                setChannelId(null);
+                                setConversationId(message.conversation_id);
+                              }
+                              setSearchOpen(false);
+                            }}
+                            className="w-full rounded-2xl px-3 py-2 text-left hover:bg-white/[0.04]"
+                          >
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="font-medium text-slate-300">
+                                {message.display_name}
+                              </span>
+                              <span className="text-slate-600">
+                                @{message.username}
+                              </span>
+                            </div>
+                            <p className="mt-1 line-clamp-2 text-sm text-slate-400">
+                              {message.body}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {(searchResults.data?.users ?? []).length > 0 && (
+                    <section>
+                      <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+                        People
+                      </p>
+                      <div className="space-y-1">
+                        {(searchResults.data?.users ?? []).map((user) => (
+                          <button
+                            key={user.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedMemberIds([user.id]);
+                              setUserSearch(user.display_name);
+                              setNewConversationOpen(true);
+                              setSearchOpen(false);
+                            }}
+                            className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left hover:bg-white/[0.04]"
+                          >
+                            <div className="grid size-9 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-semibold">
+                              {initials(user.display_name) || '?'}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">
+                                {user.display_name}
+                              </p>
+                              <p className="text-xs text-slate-600">
+                                @{user.username}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {!searchResults.data?.channels.length &&
+                    !searchResults.data?.messages.length &&
+                    !searchResults.data?.users.length && (
+                      <div className="py-12 text-center text-sm text-slate-600">
+                        No results found.
+                      </div>
+                    )}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {notificationsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-[2px]"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setNotificationsOpen(false);
+          }}
+        >
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Notifications"
+            className="flex h-full w-full max-w-md flex-col border-l border-white/10 bg-[#09151a] shadow-2xl shadow-black/40"
+          >
+            <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.16em] text-[#68e0cf]">
+                  Activity
+                </p>
+                <h2 className="mt-1 text-lg font-semibold">Notifications</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => markAllNotificationsRead.mutate()}
+                className="rounded-xl border border-white/10 px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+              >
+                Mark all read
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3">
+              {notifications.isLoading ? (
+                <div className="grid h-40 place-items-center">
+                  <Loader2 className="size-5 animate-spin text-[#68e0cf]" />
+                </div>
+              ) : (notifications.data?.items ?? []).length ? (
+                <div className="space-y-1">
+                  {(notifications.data?.items ?? []).map((notification) => (
+                    <button
+                      key={notification.id}
+                      type="button"
+                      onClick={() => {
+                        if (!notification.read_at) {
+                          markNotificationRead.mutate(notification.id);
+                        }
+                        const payload = notification.payload;
+                        if (typeof payload.channelId === 'string') {
+                          if (typeof payload.workspaceId === 'string') {
+                            setWorkspaceId(payload.workspaceId);
+                          }
+                          setConversationId(null);
+                          setChannelId(payload.channelId);
+                        } else if (
+                          typeof payload.conversationId === 'string'
+                        ) {
+                          setChannelId(null);
+                          setConversationId(payload.conversationId);
+                        }
+                        setNotificationsOpen(false);
+                      }}
+                      className={
+                        'w-full rounded-2xl border px-4 py-3 text-left transition ' +
+                        (notification.read_at
+                          ? 'border-transparent text-slate-500 hover:bg-white/[0.025]'
+                          : 'border-[#68e0cf]/10 bg-[#68e0cf]/[0.045] text-slate-300')
+                      }
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#68e0cf]">
+                          {notification.kind}
+                        </span>
+                        {!notification.read_at && (
+                          <span className="size-1.5 rounded-full bg-[#68e0cf]" />
+                        )}
+                        <span className="ml-auto text-[10px] text-slate-600">
+                          {new Date(notification.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="mt-2 line-clamp-3 text-sm leading-5">
+                        {typeof notification.payload.preview === 'string'
+                          ? notification.payload.preview
+                          : 'PulseMesh activity update'}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-16 text-center">
+                  <Bell className="mx-auto size-6 text-slate-700" />
+                  <p className="mt-3 text-sm text-slate-600">
+                    No notifications yet.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-white/8 p-4">
+              <button
+                type="button"
+                onClick={() => setNotificationsOpen(false)}
+                className="w-full rounded-2xl border border-white/10 px-4 py-2.5 text-sm text-slate-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
       {activeThread && (
         <div
           className="fixed inset-0 z-40 flex justify-end bg-black/40 backdrop-blur-[2px]"
