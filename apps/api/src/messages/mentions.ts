@@ -1,6 +1,3 @@
-import { pool } from '../db/index.js';
-import { createNotification } from '../notifications/service.js';
-
 export interface ParsedMentions {
   usernames: string[];
   broadcast: boolean;
@@ -49,6 +46,11 @@ export async function createMentionNotifications(input: {
   channelId?: string;
   conversationId?: string;
 }): Promise<void> {
+  const [{ pool }, { createNotification }] = await Promise.all([
+    import('../db/index.js'),
+    import('../notifications/service.js')
+  ]);
+
   const parsed = parseMentions(input.body);
   let recipients: Recipient[] = [];
 
@@ -81,7 +83,8 @@ export async function createMentionNotifications(input: {
     await createNotification({
       userId: recipient.id,
       kind,
-      dedupeKey: kind + ':' + input.messageId + ':' + recipient.id,
+      dedupeKey:
+        kind + ':' + input.messageId + ':' + recipient.id,
       payload: {
         messageId: input.messageId,
         channelId: input.channelId ?? null,
