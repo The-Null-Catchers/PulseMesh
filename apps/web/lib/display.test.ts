@@ -54,10 +54,7 @@ describe("conversationLabel", () => {
 
   it("keeps all members for unnamed groups", () => {
     expect(
-      conversationLabel(
-        conversation({ kind: "group", name: null }),
-        "self",
-      ),
+      conversationLabel(conversation({ kind: "group", name: null }), "self"),
     ).toBe("Mohammed, Lama");
   });
 });
