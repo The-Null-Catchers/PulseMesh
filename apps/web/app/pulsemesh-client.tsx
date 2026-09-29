@@ -44,14 +44,10 @@ import {
   WifiOff,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { RemoteMedia } from "../components/remote-media";
+import { request, WS_URL } from "../lib/api";
+import { initials } from "../lib/display";
 import { tokenExpiresAt, tokenSubject } from "../lib/session";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:4000/realtime";
-
-type ApiError = {
-  error?: { code?: string; message?: string; requestId?: string };
-};
 
 type Workspace = {
   id: string;
@@ -228,78 +224,6 @@ type NotificationItem = {
 };
 
 type Page<T> = { items: T[]; nextCursor: string | null };
-
-async function request<T>(
-  path: string,
-  accessToken?: string | null,
-  init: RequestInit = {},
-): Promise<T> {
-  const response = await fetch(API_URL + path, {
-    ...init,
-    credentials: "include",
-    headers: {
-      "content-type": "application/json",
-      "x-pulsemesh-client": "web",
-      ...(accessToken ? { authorization: "Bearer " + accessToken } : {}),
-      ...init.headers,
-    },
-  });
-
-  if (!response.ok) {
-    let body: ApiError = {};
-    try {
-      body = (await response.json()) as ApiError;
-    } catch {
-      // Keep the normalized fallback below.
-    }
-    throw new Error(
-      body.error?.message ?? `Request failed with status ${response.status}`,
-    );
-  }
-
-  return (await response.json()) as T;
-}
-
-function RemoteMedia({
-  stream,
-  video,
-}: {
-  stream: MediaStream;
-  video: boolean;
-}) {
-  const ref = useRef<HTMLMediaElement | null>(null);
-
-  useEffect(() => {
-    if (ref.current) ref.current.srcObject = stream;
-  }, [stream]);
-
-  return video ? (
-    <video
-      ref={(element) => {
-        ref.current = element;
-      }}
-      autoPlay
-      playsInline
-      className="h-full w-full object-cover"
-    />
-  ) : (
-    <audio
-      ref={(element) => {
-        ref.current = element;
-      }}
-      autoPlay
-    />
-  );
-}
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-}
 
 function AuthScreen({
   onAuthenticated,
