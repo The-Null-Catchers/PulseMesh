@@ -26,6 +26,8 @@ import { callRoutes } from './calls/routes.js';
 import { redis } from './realtime/bus.js';
 import { realtimeTicketRoutes } from './realtime/tickets.js';
 import { registerRealtimeGateway } from './realtime/gateway.js';
+import { moderationRoutes } from './moderation/routes.js';
+import { auditRoutes } from './audit/routes.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -113,6 +115,8 @@ export async function buildApp() {
   await conversationManagementRoutes(app);
   await presenceRoutes(app);
   await callRoutes(app);
+  await moderationRoutes(app);
+  await auditRoutes(app);
   await realtimeTicketRoutes(app);
   await registerRealtimeGateway(app);
   await healthRoutes(app);
