@@ -7,7 +7,9 @@ const rolePermissionMap: Record<string, string[]> = {
     'workspace.manage','workspace.invite','workspace.roles.manage',
     'channel.create','channel.update','channel.delete',
     'message.send','message.delete','message.pin',
-    'member.kick','member.ban','call.create','call.manage'
+    'member.kick','member.ban','call.create','call.manage',
+    'moderation.manage',
+    'moderation.manage','audit.view'
   ],
   Moderator: [
     'message.send','message.delete','message.pin',
