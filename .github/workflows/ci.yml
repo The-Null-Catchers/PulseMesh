@@ -24,15 +24,13 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --no-frozen-lockfile
-      - name: Print canonical web test formatting
-        run: |
-          echo "===SESSION_TS_START==="
-          pnpm exec prettier apps/web/lib/session.ts
-          echo "===SESSION_TS_END==="
-          echo "===SESSION_TEST_START==="
-          pnpm exec prettier apps/web/lib/session.test.ts
-          echo "===SESSION_TEST_END==="
-          exit 1
+      - name: Check formatting for maintained CI and web test files
+        run: >-
+          pnpm exec prettier --check
+          .github/workflows/ci.yml
+          apps/web/package.json
+          apps/web/lib/session.ts
+          apps/web/lib/session.test.ts
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
