@@ -18,6 +18,7 @@ type MessageContext = {
   channel_id: string | null;
   conversation_id: string | null;
   workspace_id: string | null;
+  encryption_version: string | null;
   body: string;
 };
 
@@ -31,6 +32,7 @@ async function messageAndRoom(
       m.channel_id,
       m.conversation_id,
       c.workspace_id,
+      m.encryption_version,
       m.body
      FROM messages m
      LEFT JOIN channels c ON c.id=m.channel_id
@@ -110,6 +112,13 @@ export async function messageMutationRoutes(
         );
       }
       await assertMessageAccess(userId, existing);
+      if (existing.encryption_version !== null) {
+        throw new AppError(
+          409,
+          'E2EE_MESSAGE_EDIT_UNSUPPORTED',
+          'Encrypted messages are immutable in the initial E2EE release'
+        );
+      }
       if (existing.sender_user_id !== userId) {
         throw new AppError(
           403,
