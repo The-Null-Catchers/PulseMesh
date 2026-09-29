@@ -64,11 +64,7 @@ export function useTypingEmitter({
       }
 
       if (typingRoomRef.current && typingRoomRef.current !== room) {
-        sendTypingEvent(
-          socketRef.current,
-          "typing.stopped",
-          typingRoomRef.current,
-        );
+        sendTypingEvent(socketRef.current, "typing.stopped", typingRoomRef.current);
         typingRoomRef.current = null;
         lastStartedAtRef.current = 0;
       }
@@ -79,11 +75,7 @@ export function useTypingEmitter({
         now - lastStartedAtRef.current >= TYPING_REFRESH_MS;
 
       if (shouldStart) {
-        const sent = sendTypingEvent(
-          socketRef.current,
-          "typing.started",
-          room,
-        );
+        const sent = sendTypingEvent(socketRef.current, "typing.started", room);
         if (sent) {
           typingRoomRef.current = room;
           lastStartedAtRef.current = now;
