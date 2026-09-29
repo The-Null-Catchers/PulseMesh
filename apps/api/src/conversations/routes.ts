@@ -25,6 +25,7 @@ type ConversationMessageRow = {
   display_name: string;
   avatar_url: string | null;
   attachments: unknown[];
+  reactions: unknown[];
 };
 
 const sendSchema = z
@@ -188,7 +189,7 @@ export async function conversationRoutes(
       values.push(query.limit + 1);
 
       const result = await pool.query<ConversationMessageRow>(
-        "SELECT m.id,m.body,m.encryption_version,m.encrypted_payload,m.created_at,m.edited_at,m.client_message_id,m.reply_to_message_id,u.id AS sender_id,u.username,u.display_name,u.avatar_url,COALESCE((SELECT json_agg(json_build_object('id',f.id,'name',f.original_name,'mimeType',COALESCE(f.detected_mime_type,f.mime_type),'sizeBytes',f.size_bytes,'width',f.width,'height',f.height,'durationMs',f.duration_ms,'hasThumbnail',(f.thumbnail_key IS NOT NULL)) ORDER BY ma.position) FROM message_attachments ma JOIN files f ON f.id=ma.file_id WHERE ma.message_id=m.id AND f.status='ready'),'[]'::json) AS attachments FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.conversation_id=$1 AND m.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM message_hidden_users h WHERE h.message_id=m.id AND h.user_id=$2) " +
+        "SELECT m.id,m.body,m.encryption_version,m.encrypted_payload,m.created_at,m.edited_at,m.client_message_id,m.reply_to_message_id,u.id AS sender_id,u.username,u.display_name,u.avatar_url,COALESCE((SELECT json_agg(json_build_object('id',f.id,'name',f.original_name,'mimeType',COALESCE(f.detected_mime_type,f.mime_type),'sizeBytes',f.size_bytes,'width',f.width,'height',f.height,'durationMs',f.duration_ms,'hasThumbnail',(f.thumbnail_key IS NOT NULL)) ORDER BY ma.position) FROM message_attachments ma JOIN files f ON f.id=ma.file_id WHERE ma.message_id=m.id AND f.status='ready'),'[]'::json) AS attachments,COALESCE((SELECT json_agg(json_build_object('emoji',r.emoji,'count',r.count,'reactedByMe',EXISTS (SELECT 1 FROM message_reactions mine WHERE mine.message_id=m.id AND mine.user_id=$2 AND mine.emoji=r.emoji)) ORDER BY r.count DESC,r.emoji) FROM (SELECT mr.emoji,count(*)::int AS count FROM message_reactions mr WHERE mr.message_id=m.id GROUP BY mr.emoji) r),'[]'::json) AS reactions FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.conversation_id=$1 AND m.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM message_hidden_users h WHERE h.message_id=m.id AND h.user_id=$2) " +
           cursorClause +
           ' ORDER BY m.created_at DESC,m.id DESC LIMIT $' +
           values.length,
@@ -210,6 +211,7 @@ export async function conversationRoutes(
           encryptedPayload: row.encrypted_payload,
           replyToMessageId: row.reply_to_message_id,
           attachments: row.attachments,
+          reactions: row.reactions,
           createdAt: row.created_at.toISOString(),
           editedAt: row.edited_at?.toISOString() ?? null,
           sender: {
