@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   mapMessageSyncRow,
   type MessageSyncRow
-} from './sync-service.js';
+} from './sync-model.js';
 
 function row(
   overrides: Partial<MessageSyncRow> = {}
