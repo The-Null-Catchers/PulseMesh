@@ -28,7 +28,6 @@ export function conversationLabel(
   return label || "Conversation";
 }
 
-
 export function typingIndicatorText(
   names: string[],
   totalCount = names.length,

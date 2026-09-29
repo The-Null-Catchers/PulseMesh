@@ -61,9 +61,9 @@ export function usePulseMeshRealtime({
   const queryClient = useQueryClient();
   const [socketState, setSocketState] = useState<SocketState>("connecting");
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
-  const typingTimersRef = useRef<
-    Map<string, ReturnType<typeof setTimeout>>
-  >(new Map());
+  const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
 
@@ -306,8 +306,7 @@ export function usePulseMeshRealtime({
 
           if (
             event.room === activeRoom &&
-            (event.type === "typing.started" ||
-              event.type === "typing.stopped")
+            (event.type === "typing.started" || event.type === "typing.stopped")
           ) {
             const typingUserId = String(event.payload?.userId ?? "");
             if (!typingUserId || typingUserId === currentUserId) return;

@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  conversationLabel,
-  initials,
-  typingIndicatorText,
-} from "./display";
+import { conversationLabel, initials, typingIndicatorText } from "./display";
 import type { Conversation } from "./types";
 
 function conversation(overrides: Partial<Conversation> = {}): Conversation {
@@ -62,7 +58,6 @@ describe("conversationLabel", () => {
     ).toBe("Mohammed, Lama");
   });
 });
-
 
 describe("typingIndicatorText", () => {
   it("formats one or multiple named typers", () => {

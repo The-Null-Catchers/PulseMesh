@@ -411,10 +411,7 @@ function WorkspaceApp({
           ?.displayName,
     )
     .filter((name): name is string => Boolean(name));
-  const typingText = typingIndicatorText(
-    typingNames,
-    typingUserIds.length,
-  );
+  const typingText = typingIndicatorText(typingNames, typingUserIds.length);
 
   function submitMessage(event: FormEvent) {
     event.preventDefault();
