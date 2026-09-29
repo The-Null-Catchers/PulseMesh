@@ -257,3 +257,4 @@ export class PulseMeshRealtimeClient {
 
 
 export * from './media.js';
+export * from './e2ee.js';
