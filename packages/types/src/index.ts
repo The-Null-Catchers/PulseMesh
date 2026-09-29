@@ -1,6 +1,7 @@
 export type UUID = string;
-export type PresenceStatus = 'online' | 'idle' | 'do-not-disturb' | 'offline';
-export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+export type PresenceStatus = "online" | "idle" | "do-not-disturb" | "offline";
+export type MessageStatus =
+  "sending" | "sent" | "delivered" | "read" | "failed";
 
 export interface ApiErrorEnvelope {
   error: {

@@ -3,7 +3,7 @@ export class AppError extends Error {
     readonly statusCode: number,
     readonly code: string,
     message: string,
-    readonly details?: unknown
+    readonly details?: unknown,
   ) {
     super(message);
   }

@@ -1,9 +1,9 @@
-import { Queue } from 'bullmq';
-import { pool } from '../db/index.js';
-import { queueRedis } from '../realtime/bus.js';
+import { Queue } from "bullmq";
+import { pool } from "../db/index.js";
+import { queueRedis } from "../realtime/bus.js";
 
-const notificationQueue = new Queue('notifications', {
-  connection: queueRedis
+const notificationQueue = new Queue("notifications", {
+  connection: queueRedis,
 });
 
 export interface CreateNotificationInput {
@@ -14,30 +14,25 @@ export interface CreateNotificationInput {
 }
 
 export async function createNotification(
-  input: CreateNotificationInput
+  input: CreateNotificationInput,
 ): Promise<string | null> {
   const result = await pool.query<{ id: string }>(
     "INSERT INTO notifications (user_id,kind,payload,dedupe_key) VALUES ($1,$2,$3::jsonb,$4) ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING RETURNING id",
-    [
-      input.userId,
-      input.kind,
-      JSON.stringify(input.payload),
-      input.dedupeKey
-    ]
+    [input.userId, input.kind, JSON.stringify(input.payload), input.dedupeKey],
   );
   const notificationId = result.rows[0]?.id ?? null;
   if (!notificationId) return null;
 
   await notificationQueue.add(
-    'notification.deliver',
+    "notification.deliver",
     { notificationId },
     {
-      jobId: 'notification-' + notificationId,
+      jobId: "notification-" + notificationId,
       attempts: 5,
-      backoff: { type: 'exponential', delay: 2_000 },
+      backoff: { type: "exponential", delay: 2_000 },
       removeOnComplete: 500,
-      removeOnFail: 1_000
-    }
+      removeOnFail: 1_000,
+    },
   );
 
   return notificationId;

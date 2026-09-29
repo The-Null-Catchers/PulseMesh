@@ -1,15 +1,15 @@
 import {
   realtimeControlMessageSchema,
   realtimeEventSchema,
-  type RealtimeEvent
-} from '@pulsemesh/realtime';
-import type { ApiErrorEnvelope } from '@pulsemesh/types';
+  type RealtimeEvent,
+} from "@pulsemesh/realtime";
+import type { ApiErrorEnvelope } from "@pulsemesh/types";
 
 export class PulseMeshApiError extends Error {
   constructor(
     readonly code: string,
     message: string,
-    readonly requestId: string
+    readonly requestId: string,
   ) {
     super(message);
   }
@@ -18,7 +18,7 @@ export class PulseMeshApiError extends Error {
 export class PulseMeshClient {
   constructor(
     private readonly baseUrl: string,
-    private readonly accessToken?: () => string | null
+    private readonly accessToken?: () => string | null,
   ) {}
 
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -26,17 +26,17 @@ export class PulseMeshClient {
     const response = await fetch(this.baseUrl + path, {
       ...init,
       headers: {
-        'content-type': 'application/json',
-        ...(token ? { authorization: 'Bearer ' + token } : {}),
-        ...init.headers
-      }
+        "content-type": "application/json",
+        ...(token ? { authorization: "Bearer " + token } : {}),
+        ...init.headers,
+      },
     });
     if (!response.ok) {
       const body = (await response.json()) as ApiErrorEnvelope;
       throw new PulseMeshApiError(
         body.error.code,
         body.error.message,
-        body.error.requestId
+        body.error.requestId,
       );
     }
     return (await response.json()) as T;
@@ -44,12 +44,7 @@ export class PulseMeshClient {
 }
 
 export type RealtimeConnectionState =
-  | 'idle'
-  | 'connecting'
-  | 'connected'
-  | 'ready'
-  | 'reconnecting'
-  | 'closed';
+  "idle" | "connecting" | "connected" | "ready" | "reconnecting" | "closed";
 
 export interface PulseMeshRealtimeOptions {
   socketUrl: string;
@@ -91,36 +86,36 @@ export class PulseMeshRealtimeClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    this.socket?.close(1000, 'Client disconnect');
+    this.socket?.close(1000, "Client disconnect");
     this.socket = null;
-    this.emitState('closed');
+    this.emitState("closed");
   }
 
   subscribe(room: string): void {
     this.rooms.add(room);
-    this.send({ type: 'room.subscribe', room });
+    this.send({ type: "room.subscribe", room });
   }
 
   unsubscribe(room: string): void {
     this.rooms.delete(room);
     if (this.activeView === room) this.activeView = null;
-    this.send({ type: 'room.unsubscribe', room });
+    this.send({ type: "room.unsubscribe", room });
   }
 
   setActiveView(room: string | null): void {
     this.activeView = room;
-    this.send({ type: 'view.active', room });
+    this.send({ type: "view.active", room });
   }
 
   heartbeat(): void {
-    this.send({ type: 'presence.heartbeat' });
+    this.send({ type: "presence.heartbeat" });
   }
 
   setTyping(room: string, typing: boolean): void {
     if (!this.rooms.has(room)) return;
     this.send({
-      type: typing ? 'typing.started' : 'typing.stopped',
-      room
+      type: typing ? "typing.started" : "typing.stopped",
+      room,
     });
   }
 
@@ -138,21 +133,19 @@ export class PulseMeshRealtimeClient {
       return;
     }
 
-    this.emitState(
-      this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting'
-    );
+    this.emitState(this.reconnectAttempts > 0 ? "reconnecting" : "connecting");
     const ticket = await this.options.getTicket();
     if (this.stopped) return;
 
     const url = new URL(this.options.socketUrl);
-    url.searchParams.set('ticket', ticket);
+    url.searchParams.set("ticket", ticket);
     const socket = new WebSocket(url);
     this.socket = socket;
 
     socket.onopen = () => {
       if (this.socket !== socket) return;
       this.reconnectAttempts = 0;
-      this.emitState('connected');
+      this.emitState("connected");
     };
 
     socket.onmessage = (message) => {
@@ -175,26 +168,24 @@ export class PulseMeshRealtimeClient {
   private handleMessage(raw: unknown): void {
     let value: unknown;
     try {
-      value = JSON.parse(
-        typeof raw === 'string' ? raw : String(raw)
-      );
+      value = JSON.parse(typeof raw === "string" ? raw : String(raw));
     } catch {
       return;
     }
 
     const control = realtimeControlMessageSchema.safeParse(value);
     if (control.success) {
-      if (control.data.type === 'session.ready') {
+      if (control.data.type === "session.ready") {
         this.send({
-          type: 'session.resume',
+          type: "session.resume",
           lastSequence: this.lastSequence,
-          rooms: [...this.rooms]
+          rooms: [...this.rooms],
         });
       } else {
         if (this.activeView) {
-          this.send({ type: 'view.active', room: this.activeView });
+          this.send({ type: "view.active", room: this.activeView });
         }
-        this.emitState('ready');
+        this.emitState("ready");
       }
       return;
     }
@@ -204,7 +195,7 @@ export class PulseMeshRealtimeClient {
 
     this.rememberEvent(event.data.id);
     if (
-      typeof event.data.sequence === 'number' &&
+      typeof event.data.sequence === "number" &&
       event.data.sequence > this.lastSequence
     ) {
       this.lastSequence = event.data.sequence;
@@ -223,10 +214,7 @@ export class PulseMeshRealtimeClient {
   }
 
   private send(value: unknown): void {
-    if (
-      !this.socket ||
-      this.socket.readyState !== WebSocket.OPEN
-    ) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       return;
     }
     this.socket.send(JSON.stringify(value));
@@ -235,11 +223,11 @@ export class PulseMeshRealtimeClient {
   private scheduleReconnect(): void {
     if (this.stopped || this.reconnectTimer) return;
 
-    this.emitState('reconnecting');
+    this.emitState("reconnecting");
     const maxBackoff = this.options.maxBackoffMs ?? 30_000;
     const exponential = Math.min(
       1_000 * 2 ** Math.min(this.reconnectAttempts, 5),
-      maxBackoff
+      maxBackoff,
     );
     const delay = exponential + Math.floor(Math.random() * 250);
     this.reconnectAttempts += 1;
@@ -255,6 +243,5 @@ export class PulseMeshRealtimeClient {
   }
 }
 
-
-export * from './media.js';
-export * from './e2ee.js';
+export * from "./media.js";
+export * from "./e2ee.js";

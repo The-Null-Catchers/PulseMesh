@@ -1,31 +1,31 @@
-import { Redis } from 'ioredis';
+import { Redis } from "ioredis";
 import {
   realtimeEventSchema,
   type RealtimeEvent,
-  type SequencedRealtimeEvent
-} from '@pulsemesh/realtime';
-import { config } from '../config.js';
+  type SequencedRealtimeEvent,
+} from "@pulsemesh/realtime";
+import { config } from "../config.js";
 
 export const redis = new Redis(config.REDIS_URL, {
-  maxRetriesPerRequest: 2
+  maxRetriesPerRequest: 2,
 });
 
 export const publisher = new Redis(config.REDIS_URL, {
-  maxRetriesPerRequest: 2
+  maxRetriesPerRequest: 2,
 });
 
 export const subscriber = new Redis(config.REDIS_URL, {
-  maxRetriesPerRequest: null
+  maxRetriesPerRequest: null,
 });
 
 export const queueRedis = new Redis(config.REDIS_URL, {
-  maxRetriesPerRequest: null
+  maxRetriesPerRequest: null,
 });
 
-export const REALTIME_CHANNEL = 'pulsemesh:events';
+export const REALTIME_CHANNEL = "pulsemesh:events";
 
-const REALTIME_SEQUENCE_KEY = 'pulsemesh:realtime:sequence';
-const RECOVERY_PREFIX = 'pulsemesh:realtime:recovery:';
+const REALTIME_SEQUENCE_KEY = "pulsemesh:realtime:sequence";
+const RECOVERY_PREFIX = "pulsemesh:realtime:recovery:";
 const RECOVERY_TTL_SECONDS = 15 * 60;
 const RECOVERY_EVENTS_PER_ROOM = 2_000;
 
@@ -34,7 +34,7 @@ function recoveryKey(room: string): string {
 }
 
 export async function publishRealtime(
-  event: RealtimeEvent
+  event: RealtimeEvent,
 ): Promise<SequencedRealtimeEvent> {
   const sequence = await publisher.incr(REALTIME_SEQUENCE_KEY);
   const enriched = { ...event, sequence } as SequencedRealtimeEvent;
@@ -49,8 +49,8 @@ export async function publishRealtime(
     "if count > maxItems then",
     "  redis.call('ZREMRANGEBYRANK', KEYS[1], 0, count - maxItems - 1)",
     "end",
-    "return count"
-  ].join('\n');
+    "return count",
+  ].join("\n");
 
   await publisher.eval(
     script,
@@ -59,14 +59,14 @@ export async function publishRealtime(
     sequence,
     serialized,
     RECOVERY_TTL_SECONDS,
-    RECOVERY_EVENTS_PER_ROOM
+    RECOVERY_EVENTS_PER_ROOM,
   );
   await publisher.publish(REALTIME_CHANNEL, serialized);
   return enriched;
 }
 
 export async function publishEphemeralRealtime(
-  event: RealtimeEvent
+  event: RealtimeEvent,
 ): Promise<void> {
   await publisher.publish(REALTIME_CHANNEL, JSON.stringify(event));
 }
@@ -83,7 +83,10 @@ export async function replayRealtimeEvents(input: {
   limit?: number;
 }): Promise<{ events: SequencedRealtimeEvent[]; truncated: boolean }> {
   const limit = input.limit ?? 500;
-  if (input.rooms.length === 0 || input.throughSequence <= input.afterSequence) {
+  if (
+    input.rooms.length === 0 ||
+    input.throughSequence <= input.afterSequence
+  ) {
     return { events: [], truncated: false };
   }
 
@@ -93,11 +96,11 @@ export async function replayRealtimeEvents(input: {
   for (const room of input.rooms) {
     const rawEvents = await redis.zrangebyscore(
       recoveryKey(room),
-      '(' + String(input.afterSequence),
+      "(" + String(input.afterSequence),
       String(input.throughSequence),
-      'LIMIT',
+      "LIMIT",
       0,
-      perRoomLimit
+      perRoomLimit,
     );
 
     for (const raw of rawEvents) {
@@ -109,15 +112,17 @@ export async function replayRealtimeEvents(input: {
       }
 
       const parsed = realtimeEventSchema.safeParse(value);
-      if (!parsed.success || typeof parsed.data.sequence !== 'number') continue;
+      if (!parsed.success || typeof parsed.data.sequence !== "number") continue;
       if (parsed.data.sequence > input.throughSequence) continue;
       merged.set(parsed.data.id, parsed.data as SequencedRealtimeEvent);
     }
   }
 
-  const sorted = [...merged.values()].sort((left, right) => left.sequence - right.sequence);
+  const sorted = [...merged.values()].sort(
+    (left, right) => left.sequence - right.sequence,
+  );
   return {
     events: sorted.slice(0, limit),
-    truncated: sorted.length > limit
+    truncated: sorted.length > limit,
   };
 }
