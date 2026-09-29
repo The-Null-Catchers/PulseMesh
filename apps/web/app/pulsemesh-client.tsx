@@ -46,7 +46,9 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AuthScreen } from "../components/auth-screen";
 import { RemoteMedia } from "../components/remote-media";
 import { useFileUploads } from "../hooks/use-file-uploads";
+import { useGlobalSearch } from "../hooks/use-global-search";
 import { useMessageActions } from "../hooks/use-message-actions";
+import { useNotifications } from "../hooks/use-notifications";
 import { usePulseMeshCall } from "../hooks/use-pulsemesh-call";
 import { usePulseMeshRealtime } from "../hooks/use-pulsemesh-realtime";
 import { request } from "../lib/api";
@@ -56,10 +58,8 @@ import type {
   Channel,
   Conversation,
   Message,
-  NotificationItem,
   Page,
   PresenceMember,
-  SearchResponse,
   SearchUser,
   ThreadReply,
   Workspace,
@@ -83,12 +83,26 @@ function WorkspaceApp({
   const [groupName, setGroupName] = useState("");
   const [activeThread, setActiveThread] = useState<Message | null>(null);
   const [threadComposer, setThreadComposer] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastReadRef = useRef<Record<string, string>>({});
+
+  const {
+    searchOpen,
+    setSearchOpen,
+    searchQuery,
+    setSearchQuery,
+    searchResults,
+  } = useGlobalSearch(token);
+
+  const {
+    notificationsOpen,
+    setNotificationsOpen,
+    notifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+    unreadNotificationCount,
+  } = useNotifications(token);
 
   const workspaces = useQuery({
     queryKey: ["workspaces"],
@@ -247,22 +261,6 @@ function WorkspaceApp({
     queryFn: () => request<Page<Message>>(activeMessagesPath!, token),
   });
 
-  const searchResults = useQuery({
-    queryKey: ["global-search", searchQuery],
-    enabled: searchOpen && searchQuery.trim().length >= 2,
-    queryFn: () =>
-      request<SearchResponse>(
-        `/search?q=${encodeURIComponent(searchQuery.trim())}&limit=20`,
-        token,
-      ),
-  });
-
-  const notifications = useQuery({
-    queryKey: ["notifications"],
-    queryFn: () =>
-      request<{ items: NotificationItem[] }>("/notifications", token),
-  });
-
   const presence = useQuery({
     queryKey: ["presence", workspaceId],
     enabled: Boolean(workspaceId),
@@ -330,26 +328,6 @@ function WorkspaceApp({
     setThreadComposer,
   });
 
-  const markNotificationRead = useMutation({
-    mutationFn: (notificationId: string) =>
-      request(`/notifications/${notificationId}/read`, token, {
-        method: "POST",
-        body: "{}",
-      }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-  });
-
-  const markAllNotificationsRead = useMutation({
-    mutationFn: () =>
-      request("/notifications/read-all", token, {
-        method: "POST",
-        body: "{}",
-      }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["notifications"] }),
-  });
-
   const logout = useMutation({
     mutationFn: () =>
       request("/auth/logout", token, {
@@ -413,10 +391,6 @@ function WorkspaceApp({
     () => [...(messages.data?.items ?? [])].reverse(),
     [messages.data],
   );
-  const unreadNotificationCount = (notifications.data?.items ?? []).filter(
-    (item) => !item.read_at,
-  ).length;
-
   function submitMessage(event: FormEvent) {
     event.preventDefault();
     const body = composer.trim();
