@@ -550,6 +550,8 @@ function WorkspaceApp({
   const socketRef = useRef<WebSocket | null>(null);
   const mediaSessionRef = useRef<BrowserMeshMediaSession | null>(null);
   const selfParticipantIdRef = useRef<string | null>(null);
+  const activeCallRef = useRef<ActiveCall | null>(null);
+  const activeCallRoomRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadXhrsRef = useRef<Map<string, XMLHttpRequest>>(new Map());
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -733,7 +735,7 @@ function WorkspaceApp({
               JSON.stringify({
                 type: 'session.resume',
                 lastSequence: Number.isFinite(sequence) ? sequence : 0,
-                rooms: [activeRoom, activeCallRoom].filter((room): room is string => Boolean(room))
+                rooms: [activeRoom, activeCallRoomRef.current].filter((room): room is string => Boolean(room))
               })
             );
             return;
@@ -770,8 +772,8 @@ function WorkspaceApp({
 
           if (
             event.type === 'call.signal' &&
-            activeCall &&
-            event.payload.callId === activeCall.id
+            activeCallRef.current &&
+            event.payload.callId === activeCallRef.current.id
           ) {
             void mediaSessionRef.current
               ?.handleSignal(
@@ -789,8 +791,8 @@ function WorkspaceApp({
           }
 
           if (
-            activeCall &&
-            event.payload?.callId === activeCall.id &&
+            activeCallRef.current &&
+            event.payload?.callId === activeCallRef.current.id &&
             event.type === 'call.participant.joined'
           ) {
             const participant = event.payload.participant as CallParticipant;
@@ -817,8 +819,8 @@ function WorkspaceApp({
           }
 
           if (
-            activeCall &&
-            event.payload?.callId === activeCall.id &&
+            activeCallRef.current &&
+            event.payload?.callId === activeCallRef.current.id &&
             event.type === 'call.participant.updated'
           ) {
             const participant = event.payload.participant as CallParticipant;
@@ -836,8 +838,8 @@ function WorkspaceApp({
           }
 
           if (
-            activeCall &&
-            event.payload?.callId === activeCall.id &&
+            activeCallRef.current &&
+            event.payload?.callId === activeCallRef.current.id &&
             event.type === 'call.participant.left'
           ) {
             const participant = event.payload.participant as CallParticipant;
@@ -860,13 +862,15 @@ function WorkspaceApp({
           }
 
           if (
-            activeCall &&
+            activeCallRef.current &&
             event.type === 'call.ended' &&
-            event.payload.callId === activeCall.id
+            event.payload.callId === activeCallRef.current.id
           ) {
             mediaSessionRef.current?.leave();
             mediaSessionRef.current = null;
             selfParticipantIdRef.current = null;
+            activeCallRef.current = null;
+            activeCallRoomRef.current = null;
             setActiveCall(null);
             setActiveCallRoom(null);
             setLocalVideoStream(null);
@@ -934,7 +938,7 @@ function WorkspaceApp({
       socketRef.current = null;
       setTyping(false);
     };
-  }, [activeCall, activeCallRoom, activeMessageKey, activeRoom, queryClient, token]);
+  }, [activeMessageKey, activeRoom, queryClient, token]);
 
   const sendMessage = useMutation({
     mutationFn: async ({
@@ -1206,6 +1210,7 @@ function WorkspaceApp({
     if (activeCall) return;
 
     setCallError(null);
+    let startedCallId: string | null = null;
     try {
       const [{ iceServers }, call] = await Promise.all([
         request<{ iceServers: RTCIceServer[] }>('/calls/ice-config', token),
@@ -1215,6 +1220,7 @@ function WorkspaceApp({
         })
       ]);
 
+      startedCallId = call.id;
       const userId = tokenSubject(token);
       const selfParticipant = call.participants.find(
         (participant) => participant.userId === userId
@@ -1257,6 +1263,8 @@ function WorkspaceApp({
 
       mediaSessionRef.current = media;
       selfParticipantIdRef.current = selfParticipant.id;
+      activeCallRef.current = call;
+      activeCallRoomRef.current = room;
       setActiveCall(call);
       setActiveCallRoom(room);
 
@@ -1284,9 +1292,17 @@ function WorkspaceApp({
         );
       }
     } catch (error) {
+      if (startedCallId) {
+        void request(`/calls/${startedCallId}/leave`, token, {
+          method: 'POST',
+          body: '{}'
+        }).catch(() => undefined);
+      }
       mediaSessionRef.current?.leave();
       mediaSessionRef.current = null;
       selfParticipantIdRef.current = null;
+      activeCallRef.current = null;
+      activeCallRoomRef.current = null;
       setActiveCall(null);
       setActiveCallRoom(null);
       setLocalVideoStream(null);
@@ -1395,6 +1411,8 @@ function WorkspaceApp({
       mediaSessionRef.current?.leave();
       mediaSessionRef.current = null;
       selfParticipantIdRef.current = null;
+      activeCallRef.current = null;
+      activeCallRoomRef.current = null;
       setActiveCall(null);
       setActiveCallRoom(null);
       setLocalVideoStream(null);
