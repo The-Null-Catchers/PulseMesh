@@ -254,3 +254,6 @@ export class PulseMeshRealtimeClient {
     this.options.onStateChange?.(state);
   }
 }
+
+
+export * from './media.js';
