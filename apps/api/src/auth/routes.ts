@@ -62,7 +62,7 @@ async function issueSession(
     const session = result.rows[0];
     if (!session) throw new Error('Session creation failed');
 
-    const refreshToken = await signRefreshToken({
+    const nextRefreshToken = await signRefreshToken({
       sub: userId,
       sessionId: session.id,
       generation: 0,
@@ -74,7 +74,7 @@ async function issueSession(
     ]);
 
     const accessToken = await signAccessToken({ sub: userId, sessionId: session.id });
-    return { accessToken, refreshToken };
+    return { accessToken, refreshToken: nextRefreshToken };
   });
 }
 
@@ -144,13 +144,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/auth/refresh', async (request, reply) => {
     const body = z.object({ refreshToken: z.string().min(20).optional() }).parse(request.body ?? {});
-    const refreshToken = refreshTokenFromRequest(request, body.refreshToken);
-    if (!refreshToken) {
+    const presentedRefreshToken = refreshTokenFromRequest(request, body.refreshToken);
+    if (!presentedRefreshToken) {
       throw new AppError(401, 'INVALID_REFRESH_TOKEN', 'Refresh token is required');
     }
     let claims;
     try {
-      claims = await verifyRefreshToken(refreshToken);
+      claims = await verifyRefreshToken(presentedRefreshToken);
     } catch {
       throw new AppError(401, 'INVALID_REFRESH_TOKEN', 'Refresh token is invalid');
     }
@@ -174,7 +174,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         session.user_id !== claims.sub ||
         session.family_id !== claims.familyId ||
         session.generation !== claims.generation ||
-        session.refresh_token_hash !== sha256(refreshToken);
+        session.refresh_token_hash !== sha256(presentedRefreshToken);
 
       if (invalid) {
         await client.query(
@@ -193,7 +193,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       });
       await client.query(
         'UPDATE sessions SET generation=$1,refresh_token_hash=$2,last_active_at=now() WHERE id=$3',
-        [generation, sha256(refreshToken), session.id]
+        [generation, sha256(nextRefreshToken), session.id]
       );
       const accessToken = await signAccessToken({
         sub: session.user_id,
