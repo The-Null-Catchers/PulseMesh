@@ -10,13 +10,13 @@ extension RoomKindWire on RoomKind {
         RoomKind.channel => 'channels',
         RoomKind.conversation => 'conversations',
       };
-
-  static RoomKind parse(String value) => switch (value) {
-        'channel' => RoomKind.channel,
-        'conversation' => RoomKind.conversation,
-        _ => throw ArgumentError.value(value, 'value', 'Unknown room kind'),
-      };
 }
+
+RoomKind parseRoomKind(String value) => switch (value) {
+      'channel' => RoomKind.channel,
+      'conversation' => RoomKind.conversation,
+      _ => throw ArgumentError.value(value, 'value', 'Unknown room kind'),
+    };
 
 class RoomRef {
   const RoomRef({required this.kind, required this.id});
