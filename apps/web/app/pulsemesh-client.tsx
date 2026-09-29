@@ -51,7 +51,6 @@ import { request } from "../lib/api";
 import { initials } from "../lib/display";
 import { tokenExpiresAt } from "../lib/session";
 import type {
-  ActiveCall,
   Attachment,
   Channel,
   Conversation,
@@ -273,7 +272,7 @@ function WorkspaceApp({
       ),
   });
 
-  const { socketRef, socketState, typing } = usePulseMeshRealtime({
+  const { socketState, typing } = usePulseMeshRealtime({
     token,
     activeRoom,
     activeMessageKey,
