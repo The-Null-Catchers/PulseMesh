@@ -15,8 +15,15 @@ export async function channelRoutes(app: FastifyInstance): Promise<void> {
       throw new AppError(403, 'WORKSPACE_ACCESS_DENIED', 'Workspace access denied');
     }
     const result = await pool.query(
-      'SELECT id,name,topic,kind,visibility,position,archived_at FROM channels WHERE workspace_id=$1 AND archived_at IS NULL ORDER BY position,name',
-      [params.workspaceId]
+      `SELECT c.id,c.name,c.topic,c.kind,c.visibility,c.position,c.archived_at
+       FROM channels c
+       LEFT JOIN channel_members cm
+         ON cm.channel_id=c.id AND cm.user_id=$2
+       WHERE c.workspace_id=$1
+         AND c.archived_at IS NULL
+         AND (c.visibility<>'private' OR cm.user_id IS NOT NULL)
+       ORDER BY c.position,c.name`,
+      [params.workspaceId, userId]
     );
     return { items: result.rows };
   });
