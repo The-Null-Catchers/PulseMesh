@@ -12,6 +12,9 @@ import { AppError } from '../errors.js';
 import { publishRealtime } from '../realtime/bus.js';
 import { attachReadyFiles } from './attachments.js';
 import { createMentionNotifications } from './mentions.js';
+import { enforceWorkspaceMessagePolicy } from '../moderation/anti-spam.js';
+import { channelWorkspaceId } from '../moderation/service.js';
+import { messagesCreated } from '../observability/metrics.js';
 
 const sendSchema = z
   .object({
@@ -148,6 +151,13 @@ export async function messageRoutes(
         );
       }
 
+      const workspaceId = await channelWorkspaceId(params.channelId);
+      await enforceWorkspaceMessagePolicy({
+        workspaceId,
+        userId,
+        body: body.body
+      });
+
       const created = await withTransaction(async (client) => {
         const result = await client.query<{
           id: string;
@@ -201,6 +211,7 @@ export async function messageRoutes(
       };
 
       await publishRealtime(event);
+      messagesCreated.inc({ destination: 'channel' });
       return reply.code(201).send(event.payload);
     }
   );

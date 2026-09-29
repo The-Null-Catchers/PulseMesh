@@ -9,10 +9,13 @@ import { canAccessConversation } from '../authorization/service.js';
 import { publishRealtime } from '../realtime/bus.js';
 import { attachReadyFiles } from '../messages/attachments.js';
 import { createMentionNotifications } from '../messages/mentions.js';
+import { messagesCreated } from '../observability/metrics.js';
 
 type ConversationMessageRow = {
   id: string;
   body: string;
+  encryption_version: string | null;
+  encrypted_payload: string | null;
   created_at: Date;
   edited_at: Date | null;
   client_message_id: string | null;
@@ -28,6 +31,8 @@ const sendSchema = z
   .object({
     clientMessageId: z.string().uuid().optional(),
     body: z.string().trim().max(20_000).default(''),
+    encryptionVersion: z.literal('libsignal-v1').optional(),
+    encryptedPayload: z.string().min(1).max(262_144).optional(),
     replyToMessageId: z.string().uuid().optional(),
     attachmentIds: z
       .array(z.string().uuid())
@@ -35,8 +40,11 @@ const sendSchema = z
       .default([])
   })
   .refine(
-    (value) => value.body.length > 0 || value.attachmentIds.length > 0,
-    { message: 'A message must contain text or an attachment' }
+    (value) =>
+      value.body.length > 0 ||
+      value.attachmentIds.length > 0 ||
+      value.encryptedPayload !== undefined,
+    { message: 'A message must contain plaintext, ciphertext, or an attachment' }
   );
 
 export async function conversationRoutes(
@@ -47,7 +55,7 @@ export async function conversationRoutes(
     { preHandler: app.authenticate },
     async (request) => {
       const result = await pool.query(
-        "SELECT c.id,c.kind,c.name,c.avatar_url,c.created_at,COALESCE(json_agg(json_build_object('id',u.id,'username',u.username,'displayName',u.display_name,'avatarUrl',u.avatar_url) ORDER BY u.display_name) FILTER (WHERE u.id IS NOT NULL),'[]'::json) AS members FROM conversations c JOIN conversation_members mine ON mine.conversation_id=c.id AND mine.user_id=$1 LEFT JOIN conversation_members cm ON cm.conversation_id=c.id LEFT JOIN users u ON u.id=cm.user_id GROUP BY c.id ORDER BY c.updated_at DESC,c.created_at DESC",
+        "SELECT c.id,c.kind,c.name,c.avatar_url,c.encryption_mode,c.created_at,COALESCE(json_agg(json_build_object('id',u.id,'username',u.username,'displayName',u.display_name,'avatarUrl',u.avatar_url) ORDER BY u.display_name) FILTER (WHERE u.id IS NOT NULL),'[]'::json) AS members FROM conversations c JOIN conversation_members mine ON mine.conversation_id=c.id AND mine.user_id=$1 LEFT JOIN conversation_members cm ON cm.conversation_id=c.id LEFT JOIN users u ON u.id=cm.user_id GROUP BY c.id ORDER BY c.updated_at DESC,c.created_at DESC",
         [request.auth?.userId]
       );
       return { items: result.rows };
@@ -180,7 +188,7 @@ export async function conversationRoutes(
       values.push(query.limit + 1);
 
       const result = await pool.query<ConversationMessageRow>(
-        "SELECT m.id,m.body,m.created_at,m.edited_at,m.client_message_id,m.reply_to_message_id,u.id AS sender_id,u.username,u.display_name,u.avatar_url,COALESCE((SELECT json_agg(json_build_object('id',f.id,'name',f.original_name,'mimeType',COALESCE(f.detected_mime_type,f.mime_type),'sizeBytes',f.size_bytes,'width',f.width,'height',f.height,'durationMs',f.duration_ms,'hasThumbnail',(f.thumbnail_key IS NOT NULL)) ORDER BY ma.position) FROM message_attachments ma JOIN files f ON f.id=ma.file_id WHERE ma.message_id=m.id AND f.status='ready'),'[]'::json) AS attachments FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.conversation_id=$1 AND m.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM message_hidden_users h WHERE h.message_id=m.id AND h.user_id=$2) " +
+        "SELECT m.id,m.body,m.encryption_version,m.encrypted_payload,m.created_at,m.edited_at,m.client_message_id,m.reply_to_message_id,u.id AS sender_id,u.username,u.display_name,u.avatar_url,COALESCE((SELECT json_agg(json_build_object('id',f.id,'name',f.original_name,'mimeType',COALESCE(f.detected_mime_type,f.mime_type),'sizeBytes',f.size_bytes,'width',f.width,'height',f.height,'durationMs',f.duration_ms,'hasThumbnail',(f.thumbnail_key IS NOT NULL)) ORDER BY ma.position) FROM message_attachments ma JOIN files f ON f.id=ma.file_id WHERE ma.message_id=m.id AND f.status='ready'),'[]'::json) AS attachments FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.conversation_id=$1 AND m.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM message_hidden_users h WHERE h.message_id=m.id AND h.user_id=$2) " +
           cursorClause +
           ' ORDER BY m.created_at DESC,m.id DESC LIMIT $' +
           values.length,
@@ -198,6 +206,8 @@ export async function conversationRoutes(
           channelId: null,
           conversationId: params.conversationId,
           body: row.body,
+          encryptionVersion: row.encryption_version,
+          encryptedPayload: row.encrypted_payload,
           replyToMessageId: row.reply_to_message_id,
           attachments: row.attachments,
           createdAt: row.created_at.toISOString(),
@@ -247,18 +257,53 @@ export async function conversationRoutes(
         );
       }
 
+      const conversation = await pool.query<{
+        encryption_mode: 'none' | 'e2ee_v1';
+      }>(
+        'SELECT encryption_mode FROM conversations WHERE id=$1',
+        [params.conversationId]
+      );
+      const encryptionMode =
+        conversation.rows[0]?.encryption_mode ?? 'none';
+
+      if (encryptionMode === 'e2ee_v1') {
+        if (
+          body.encryptionVersion !== 'libsignal-v1' ||
+          !body.encryptedPayload ||
+          body.body.length > 0 ||
+          body.attachmentIds.length > 0
+        ) {
+          throw new AppError(
+            400,
+            'E2EE_CIPHERTEXT_REQUIRED',
+            'Encrypted conversations accept only libsignal ciphertext in the initial E2EE release'
+          );
+        }
+      } else if (
+        body.encryptionVersion !== undefined ||
+        body.encryptedPayload !== undefined
+      ) {
+        throw new AppError(
+          409,
+          'E2EE_NOT_ENABLED',
+          'End-to-end encryption is not enabled for this conversation'
+        );
+      }
+
       const created = await withTransaction(async (client) => {
         const result = await client.query<{
           id: string;
           created_at: Date;
           client_message_id: string | null;
         }>(
-          'INSERT INTO messages (conversation_id,sender_user_id,client_message_id,body,reply_to_message_id) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (sender_user_id,client_message_id) WHERE client_message_id IS NOT NULL DO UPDATE SET client_message_id=EXCLUDED.client_message_id RETURNING id,created_at,client_message_id',
+          'INSERT INTO messages (conversation_id,sender_user_id,client_message_id,body,encryption_version,encrypted_payload,reply_to_message_id) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (sender_user_id,client_message_id) WHERE client_message_id IS NOT NULL DO UPDATE SET client_message_id=EXCLUDED.client_message_id RETURNING id,created_at,client_message_id',
           [
             params.conversationId,
             userId,
             body.clientMessageId ?? null,
             body.body,
+            body.encryptionVersion ?? null,
+            body.encryptedPayload ?? null,
             body.replyToMessageId ?? null
           ]
         );
@@ -280,12 +325,14 @@ export async function conversationRoutes(
         return { message, attachmentIds };
       });
 
-      await createMentionNotifications({
-        messageId: created.message.id,
-        senderUserId: userId,
-        body: body.body,
-        conversationId: params.conversationId
-      });
+      if (encryptionMode === 'none') {
+        await createMentionNotifications({
+          messageId: created.message.id,
+          senderUserId: userId,
+          body: body.body,
+          conversationId: params.conversationId
+        });
+      }
 
       const event: RealtimeEvent = {
         id: randomUUID(),
@@ -298,6 +345,8 @@ export async function conversationRoutes(
           conversationId: params.conversationId,
           senderId: userId,
           body: body.body,
+          encryptionVersion: body.encryptionVersion ?? null,
+          encryptedPayload: body.encryptedPayload ?? null,
           clientMessageId: created.message.client_message_id,
           attachmentIds: created.attachmentIds,
           createdAt: created.message.created_at.toISOString()
@@ -305,6 +354,7 @@ export async function conversationRoutes(
       };
 
       await publishRealtime(event);
+      messagesCreated.inc({ destination: 'conversation' });
       return reply.code(201).send(event.payload);
     }
   );

@@ -70,6 +70,8 @@ class OfflineSyncEngine {
   Future<String> enqueueMessage({
     required RoomRef room,
     required String body,
+    String? encryptionVersion,
+    String? encryptedPayload,
     String? replyToMessageId,
     List<String> attachmentIds = const [],
     String? senderId,
@@ -79,6 +81,8 @@ class OfflineSyncEngine {
       clientMessageId: clientMessageId,
       room: room,
       body: body,
+      encryptionVersion: encryptionVersion,
+      encryptedPayload: encryptedPayload,
       replyToMessageId: replyToMessageId,
       attachmentIds: attachmentIds,
       senderId: senderId,

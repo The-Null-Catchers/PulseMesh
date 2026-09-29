@@ -85,6 +85,10 @@ class DioMessageSyncTransport implements MessageSyncTransport {
       data: {
         'clientMessageId': message.clientMessageId,
         'body': message.body,
+        if (message.encryptionVersion != null)
+          'encryptionVersion': message.encryptionVersion,
+        if (message.encryptedPayload != null)
+          'encryptedPayload': message.encryptedPayload,
         if (message.replyToMessageId != null)
           'replyToMessageId': message.replyToMessageId,
         'attachmentIds': message.attachmentIds,

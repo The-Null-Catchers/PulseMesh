@@ -26,6 +26,11 @@ import { callRoutes } from './calls/routes.js';
 import { redis } from './realtime/bus.js';
 import { realtimeTicketRoutes } from './realtime/tickets.js';
 import { registerRealtimeGateway } from './realtime/gateway.js';
+import { moderationRoutes } from './moderation/routes.js';
+import { auditRoutes } from './audit/routes.js';
+import { observabilityRoutes } from './observability/routes.js';
+import { registerHttpMetrics } from './observability/metrics.js';
+import { e2eeRoutes } from './e2ee/routes.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -50,6 +55,8 @@ export async function buildApp() {
     timeWindow: '1 minute',
     redis
   });
+
+  registerHttpMetrics(app);
 
   app.setErrorHandler((error, request, reply) => {
     const appError =
@@ -113,9 +120,13 @@ export async function buildApp() {
   await conversationManagementRoutes(app);
   await presenceRoutes(app);
   await callRoutes(app);
+  await moderationRoutes(app);
+  await auditRoutes(app);
+  await e2eeRoutes(app);
   await realtimeTicketRoutes(app);
   await registerRealtimeGateway(app);
   await healthRoutes(app);
+  await observabilityRoutes(app);
 
   return app;
 }

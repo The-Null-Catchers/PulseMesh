@@ -16,6 +16,9 @@ PulseMesh is a production-oriented realtime communication platform for teams, co
 - FCM, Web Push and SMTP notification delivery
 - verified direct uploads with asynchronous media processing
 - SQLite offline cache, outgoing queue and cursor reconciliation
+- workspace moderation, audit logs and distributed anti-spam controls
+- Prometheus-compatible observability
+- optional one-to-one E2EE protocol boundary
 - migrations, seed data, CI and architecture documentation
 
 ## Quick start
@@ -36,6 +39,7 @@ Development endpoints:
 - API: http://localhost:4000
 - MinIO console: http://localhost:9001
 - TURN: localhost:3478
+- Prometheus metrics: http://localhost:4000/metrics
 
 Demo workspace: The Null Catchers
 
@@ -53,6 +57,10 @@ WebRTC signaling is kept behind a replaceable media boundary so initial small-gr
 
 Flutter persists recent data and pending sends in SQLite. Reconnect reconciliation uses a durable server-side message journal plus per-room cursors, so missed WebSocket events are repaired without downloading complete histories.
 
+Moderation decisions remain durable in PostgreSQL, while temporary anti-spam windows use Redis atomically across replicas. Prometheus metrics use bounded-cardinality route labels and expose no message content.
+
+Optional one-to-one E2EE stores only public key bundles and opaque ciphertext on the server. Client crypto is deliberately behind an SDK provider interface and must use an established Signal Protocol implementation rather than custom cryptography.
+
 Read the architecture notes in `docs/` before deploying.
 
 ## Architecture docs
@@ -63,6 +71,7 @@ Read the architecture notes in `docs/` before deploying.
 - `docs/DATABASE.md`
 - `docs/SECURITY.md`
 - `docs/OFFLINE_SYNC.md`
+- `docs/OBSERVABILITY.md`
 - `docs/DEPLOYMENT.md`
 - `docs/PHASES.md`
 
@@ -75,4 +84,6 @@ Read the architecture notes in `docs/` before deploying.
 5. voice rooms — implemented
 6. video and screen sharing — implemented
 7. offline-first mobile synchronization — implemented
-8. moderation, E2EE, observability and hardening
+8. moderation, E2EE boundary, observability and hardening — implemented
+
+Future scale work can replace the initial mesh media provider with an SFU, move PostgreSQL search behind a dedicated search engine, add encrypted group messaging, and add encrypted attachment envelopes without changing the durable module boundaries.

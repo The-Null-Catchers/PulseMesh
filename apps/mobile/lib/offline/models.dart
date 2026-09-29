@@ -107,6 +107,8 @@ class PendingOutgoingMessage {
     required this.clientMessageId,
     required this.room,
     required this.body,
+    required this.encryptionVersion,
+    required this.encryptedPayload,
     required this.replyToMessageId,
     required this.attachmentIds,
     required this.attempts,
@@ -115,6 +117,8 @@ class PendingOutgoingMessage {
   final String clientMessageId;
   final RoomRef room;
   final String body;
+  final String? encryptionVersion;
+  final String? encryptedPayload;
   final String? replyToMessageId;
   final List<String> attachmentIds;
   final int attempts;

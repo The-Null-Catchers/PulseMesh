@@ -90,6 +90,50 @@ describe('realtime contracts', () => {
     expect(result.success).toBe(true);
   });
 
+  it('accepts opaque libsignal ciphertext on created messages', () => {
+    const result = realtimeEventSchema.safeParse({
+      id: '67d4e381-a0df-4d82-9177-cb1daa78bd74',
+      type: 'message.created',
+      room: 'conversation:54285544-0c19-4c53-838d-27a1155c461b',
+      occurredAt: new Date().toISOString(),
+      payload: {
+        id: 'f113742e-2534-443e-8353-34382100dfdf',
+        channelId: null,
+        conversationId: '54285544-0c19-4c53-838d-27a1155c461b',
+        senderId: '78119f40-5b7e-48fa-a6da-d4d19d2cba45',
+        body: '',
+        encryptionVersion: 'libsignal-v1',
+        encryptedPayload: 'Y2lwaGVydGV4dA==',
+        clientMessageId: null,
+        createdAt: new Date().toISOString()
+      }
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects oversized encrypted payloads', () => {
+    const result = realtimeEventSchema.safeParse({
+      id: '67d4e381-a0df-4d82-9177-cb1daa78bd74',
+      type: 'message.created',
+      room: 'conversation:54285544-0c19-4c53-838d-27a1155c461b',
+      occurredAt: new Date().toISOString(),
+      payload: {
+        id: 'f113742e-2534-443e-8353-34382100dfdf',
+        channelId: null,
+        conversationId: '54285544-0c19-4c53-838d-27a1155c461b',
+        senderId: '78119f40-5b7e-48fa-a6da-d4d19d2cba45',
+        body: '',
+        encryptionVersion: 'libsignal-v1',
+        encryptedPayload: 'x'.repeat(262_145),
+        clientMessageId: null,
+        createdAt: new Date().toISOString()
+      }
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it('rejects negative recovery cursors', () => {
     const result = clientRealtimeMessageSchema.safeParse({
       type: 'session.resume',

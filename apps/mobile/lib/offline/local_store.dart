@@ -27,9 +27,25 @@ class LocalMessageStore {
     final root = await getDatabasesPath();
     return openDatabase(
       '$root/$databaseName.sqlite',
-      version: 1,
+      version: 2,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE cached_messages ADD COLUMN encryption_version TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE cached_messages ADD COLUMN encrypted_payload TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE outgoing_queue ADD COLUMN encryption_version TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE outgoing_queue ADD COLUMN encrypted_payload TEXT',
+          );
+        }
       },
       onCreate: (db, version) async {
         await db.execute('''
@@ -40,6 +56,8 @@ class LocalMessageStore {
             room_kind TEXT NOT NULL,
             room_id TEXT NOT NULL,
             body TEXT NOT NULL,
+            encryption_version TEXT,
+            encrypted_payload TEXT,
             sender_id TEXT,
             created_at TEXT NOT NULL,
             edited_at TEXT,
@@ -59,6 +77,8 @@ class LocalMessageStore {
             room_kind TEXT NOT NULL,
             room_id TEXT NOT NULL,
             body TEXT NOT NULL,
+            encryption_version TEXT,
+            encrypted_payload TEXT,
             reply_to_message_id TEXT,
             attachment_ids_json TEXT NOT NULL DEFAULT '[]',
             attempts INTEGER NOT NULL DEFAULT 0,
@@ -147,6 +167,8 @@ class LocalMessageStore {
     required String clientMessageId,
     required RoomRef room,
     required String body,
+    String? encryptionVersion,
+    String? encryptedPayload,
     String? replyToMessageId,
     List<String> attachmentIds = const [],
     String? senderId,
@@ -166,6 +188,8 @@ class LocalMessageStore {
           'room_kind': room.kind.wireName,
           'room_id': room.id,
           'body': body,
+          'encryption_version': encryptionVersion,
+          'encrypted_payload': encryptedPayload,
           'sender_id': senderId,
           'created_at': timestamp,
           'edited_at': null,
@@ -184,6 +208,8 @@ class LocalMessageStore {
           'room_kind': room.kind.wireName,
           'room_id': room.id,
           'body': body,
+          'encryption_version': encryptionVersion,
+          'encrypted_payload': encryptedPayload,
           'reply_to_message_id': replyToMessageId,
           'attachment_ids_json': jsonEncode(attachmentIds),
           'attempts': 0,
@@ -235,6 +261,8 @@ class LocalMessageStore {
           id: row['room_id']! as String,
         ),
         body: row['body']! as String,
+        encryptionVersion: row['encryption_version'] as String?,
+        encryptedPayload: row['encrypted_payload'] as String?,
         replyToMessageId: row['reply_to_message_id'] as String?,
         attachmentIds: attachmentIds,
         attempts: row['attempts']! as int,
@@ -488,6 +516,8 @@ class LocalMessageStore {
         'room_kind': room.kind.wireName,
         'room_id': room.id,
         'body': message['body'] as String? ?? '',
+        'encryption_version': message['encryptionVersion'] as String?,
+        'encrypted_payload': message['encryptedPayload'] as String?,
         'sender_id': sender?['id'] as String?,
         'created_at': createdAt,
         'edited_at': message['editedAt'] as String?,

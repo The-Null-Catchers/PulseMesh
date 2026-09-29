@@ -20,6 +20,7 @@ const schema = z.object({
     .default('true')
     .transform((value) => value === 'true'),
   WEB_PUSH_PUBLIC_KEY: z.string().default(''),
+  METRICS_TOKEN: z.string().default(''),
   TURN_URLS: z
     .string()
     .default(

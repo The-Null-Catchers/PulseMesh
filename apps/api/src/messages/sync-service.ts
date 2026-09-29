@@ -41,6 +41,8 @@ export async function syncMessageChanges(input: {
       m.channel_id,
       m.conversation_id,
       m.body,
+      m.encryption_version,
+      m.encrypted_payload,
       m.reply_to_message_id,
       m.created_at,
       m.edited_at,

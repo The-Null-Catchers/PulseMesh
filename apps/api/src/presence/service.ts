@@ -160,6 +160,10 @@ export async function broadcastPresence(userId: string): Promise<void> {
   }
 }
 
+export async function connectedPresenceUsers(): Promise<number> {
+  return redis.zcount(PRESENCE_INDEX_KEY, Date.now(), '+inf');
+}
+
 export async function sweepExpiredPresence(): Promise<number> {
   const now = Date.now();
   const userIds = await redis.zrangebyscore(
