@@ -51,6 +51,8 @@ export const realtimeEventSchema = z.discriminatedUnion('type', [
       conversationId: z.string().uuid().nullable(),
       senderId: z.string().uuid(),
       body: z.string(),
+      encryptionVersion: z.literal('libsignal-v1').nullable().optional(),
+      encryptedPayload: z.string().max(262_144).nullable().optional(),
       clientMessageId: z.string().uuid().nullable(),
       attachmentIds: z.array(z.string().uuid()).optional(),
       createdAt: z.string()
