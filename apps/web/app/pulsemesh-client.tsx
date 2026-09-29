@@ -1976,9 +1976,20 @@ function WorkspaceApp({
               )}
             </div>
             <div className="min-w-0">
-              <h1 className="font-semibold">
-                {currentTitle}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="font-semibold">
+                  {currentTitle}
+                </h1>
+                {isEncryptedConversation && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-lg border border-[#68e0cf]/15 bg-[#68e0cf]/[0.06] px-2 py-0.5 text-[10px] font-medium text-[#9af5e8]"
+                    title="End-to-end encrypted conversation"
+                  >
+                    <LockKeyhole className="size-3" />
+                    E2EE
+                  </span>
+                )}
+              </div>
               <p className="truncate text-xs text-slate-500">
                 {currentConversation
                   ? currentConversation.kind === 'direct'
