@@ -1,7 +1,9 @@
 name: Generate baseline
 
 on:
-  pull_request:
+  push:
+    branches:
+      - chore/format-lockfile-baseline
   workflow_dispatch:
 
 permissions:
@@ -9,13 +11,12 @@ permissions:
 
 jobs:
   baseline:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: chore/format-lockfile-baseline
       - uses: pnpm/action-setup@v4
         with:
           version: 10.17.1
@@ -59,4 +60,4 @@ jobs:
             exit 0
           fi
           git commit -m "chore: establish formatting and lockfile baseline"
-          git push origin HEAD:${{ github.head_ref }}
+          git push origin HEAD:chore/format-lockfile-baseline
