@@ -43,8 +43,15 @@ Invalid push endpoints are disabled rather than retried forever. The database re
 - files: S3 metadata, verification and signed transfers
 - notifications: in-app, push and email policy
 - calls: signaling session state and media-provider boundaries
-- moderation: reports and enforcement
+- moderation: reports, enforcement and distributed abuse controls
+- audit: durable administrative history
+- observability: bounded-cardinality Prometheus metrics
+- e2ee: public prekey distribution and ciphertext transport only; private crypto state remains client-side
 - worker: asynchronous notification and media jobs
+
+## Encrypted direct-message path
+
+When a direct conversation is switched to `e2ee_v1`, the server becomes a routing and durability layer for opaque `libsignal-v1` ciphertext. Device public bundles are tied to authenticated sessions; one-time pre-keys are claimed transactionally. Realtime replay and offline cursor sync preserve the ciphertext without decrypting or indexing it. Plaintext-era messages remain historically readable and no automatic encryption downgrade is exposed.
 
 ## Scaling
 
