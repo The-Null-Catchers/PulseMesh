@@ -898,7 +898,7 @@ function WorkspaceApp({
                       !event.nativeEvent.isComposing
                     ) {
                       event.preventDefault();
-                      submitMessage(event);
+                      event.currentTarget.form?.requestSubmit();
                     }
                   }}
                 />
