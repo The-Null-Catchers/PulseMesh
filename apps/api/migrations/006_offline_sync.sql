@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS message_sync_events (
   room_id uuid NOT NULL,
   event_type text NOT NULL CHECK (event_type IN ('message.upsert','message.delete')),
   message_id uuid NOT NULL,
+  target_user_id uuid REFERENCES users(id) ON DELETE CASCADE,
   occurred_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -12,6 +13,10 @@ CREATE INDEX IF NOT EXISTS message_sync_events_room_cursor_idx
 
 CREATE INDEX IF NOT EXISTS message_sync_events_message_idx
   ON message_sync_events(message_id,id DESC);
+
+CREATE INDEX IF NOT EXISTS message_sync_events_target_user_idx
+  ON message_sync_events(target_user_id,id)
+  WHERE target_user_id IS NOT NULL;
 
 INSERT INTO message_sync_events (
   room_kind,
@@ -93,3 +98,64 @@ CREATE TRIGGER messages_sync_event_trigger
 AFTER INSERT OR UPDATE OR DELETE ON messages
 FOR EACH ROW
 EXECUTE FUNCTION pulsemesh_record_message_sync_event();
+
+CREATE OR REPLACE FUNCTION pulsemesh_record_hidden_message_sync_event()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  source_message_id uuid;
+  source_user_id uuid;
+  sync_room_kind text;
+  sync_room_id uuid;
+  sync_event_type text;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    source_message_id := OLD.message_id;
+    source_user_id := OLD.user_id;
+    sync_event_type := 'message.upsert';
+  ELSE
+    source_message_id := NEW.message_id;
+    source_user_id := NEW.user_id;
+    sync_event_type := 'message.delete';
+  END IF;
+
+  SELECT
+    CASE WHEN channel_id IS NOT NULL THEN 'channel' ELSE 'conversation' END,
+    COALESCE(channel_id,conversation_id)
+  INTO sync_room_kind,sync_room_id
+  FROM messages
+  WHERE id=source_message_id;
+
+  IF sync_room_id IS NULL THEN
+    RETURN COALESCE(NEW,OLD);
+  END IF;
+
+  INSERT INTO message_sync_events (
+    room_kind,
+    room_id,
+    event_type,
+    message_id,
+    target_user_id,
+    occurred_at
+  )
+  VALUES (
+    sync_room_kind,
+    sync_room_id,
+    sync_event_type,
+    source_message_id,
+    source_user_id,
+    now()
+  );
+
+  RETURN COALESCE(NEW,OLD);
+END
+$$;
+
+DROP TRIGGER IF EXISTS message_hidden_users_sync_event_trigger
+  ON message_hidden_users;
+
+CREATE TRIGGER message_hidden_users_sync_event_trigger
+AFTER INSERT OR DELETE ON message_hidden_users
+FOR EACH ROW
+EXECUTE FUNCTION pulsemesh_record_hidden_message_sync_event();
