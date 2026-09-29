@@ -12,6 +12,8 @@ import { AppError } from '../errors.js';
 import { publishRealtime } from '../realtime/bus.js';
 import { attachReadyFiles } from './attachments.js';
 import { createMentionNotifications } from './mentions.js';
+import { enforceWorkspaceMessagePolicy } from '../moderation/anti-spam.js';
+import { channelWorkspaceId } from '../moderation/service.js';
 
 const sendSchema = z
   .object({
@@ -147,6 +149,13 @@ export async function messageRoutes(
           'You cannot send to this channel'
         );
       }
+
+      const workspaceId = await channelWorkspaceId(params.channelId);
+      await enforceWorkspaceMessagePolicy({
+        workspaceId,
+        userId,
+        body: body.body
+      });
 
       const created = await withTransaction(async (client) => {
         const result = await client.query<{
