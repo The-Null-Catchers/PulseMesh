@@ -15,7 +15,11 @@ const schema = z.object({
   S3_BUCKET: z.string().min(1),
   S3_ACCESS_KEY: z.string().min(1),
   S3_SECRET_KEY: z.string().min(1),
-  S3_FORCE_PATH_STYLE: z.string().default('true').transform((value) => value === 'true')
+  S3_FORCE_PATH_STYLE: z
+    .string()
+    .default('true')
+    .transform((value) => value === 'true'),
+  WEB_PUSH_PUBLIC_KEY: z.string().default('')
 });
 
 export const config = schema.parse(process.env);

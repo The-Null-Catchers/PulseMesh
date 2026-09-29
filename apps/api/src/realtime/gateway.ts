@@ -2,6 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
 import { randomUUID } from 'node:crypto';
 import {
+  ACTIVE_VIEW_TTL_MS,
+  activeViewMember,
+  activeViewRedisKey
+} from '@pulsemesh/shared';
+import {
   clientRealtimeMessageSchema,
   realtimeEventSchema,
   type RealtimeEvent,
@@ -39,7 +44,9 @@ interface SocketLike {
 interface Connection {
   socket: SocketLike;
   userId: string;
+  sessionId: string;
   rooms: Set<string>;
+  activeView: string | null;
   recoveringThrough: number | null;
   pendingEvents: SequencedRealtimeEvent[];
 }
@@ -57,12 +64,57 @@ async function canAccessRoom(userId: string, room: string): Promise<boolean> {
   return false;
 }
 
+function canBeActiveView(room: string): boolean {
+  return room.startsWith('channel:') || room.startsWith('conversation:');
+}
+
 function send(connection: Connection, value: unknown): void {
   if (connection.socket.readyState !== connection.socket.OPEN) return;
   connection.socket.send(JSON.stringify(value));
 }
 
-export async function registerRealtimeGateway(app: FastifyInstance): Promise<void> {
+async function clearActiveView(connection: Connection): Promise<void> {
+  if (!connection.activeView) return;
+  await redis.zrem(
+    activeViewRedisKey(connection.userId),
+    activeViewMember(connection.sessionId, connection.activeView)
+  );
+  connection.activeView = null;
+}
+
+async function refreshActiveView(connection: Connection): Promise<void> {
+  if (!connection.activeView) return;
+
+  const key = activeViewRedisKey(connection.userId);
+  await redis.zadd(
+    key,
+    Date.now() + ACTIVE_VIEW_TTL_MS,
+    activeViewMember(connection.sessionId, connection.activeView)
+  );
+  await redis.expire(key, Math.ceil((ACTIVE_VIEW_TTL_MS * 2) / 1000));
+}
+
+async function setActiveView(
+  connection: Connection,
+  room: string | null
+): Promise<void> {
+  if (connection.activeView === room) {
+    await refreshActiveView(connection);
+    return;
+  }
+
+  await clearActiveView(connection);
+  if (!room) return;
+  if (!canBeActiveView(room)) return;
+  if (!(await canAccessRoom(connection.userId, room))) return;
+
+  connection.activeView = room;
+  await refreshActiveView(connection);
+}
+
+export async function registerRealtimeGateway(
+  app: FastifyInstance
+): Promise<void> {
   await app.register(websocket);
 
   await subscriber.subscribe(REALTIME_CHANNEL);
@@ -95,7 +147,9 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
           continue;
         }
 
-        connection.pendingEvents.push(parsed.data as SequencedRealtimeEvent);
+        connection.pendingEvents.push(
+          parsed.data as SequencedRealtimeEvent
+        );
         continue;
       }
 
@@ -109,6 +163,7 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
     });
   }, 10_000);
   sweeper.unref();
+
   app.addHook('onClose', async () => {
     clearInterval(sweeper);
   });
@@ -129,13 +184,18 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
     const connection: Connection = {
       socket: socket as unknown as SocketLike,
       userId: identity.userId,
+      sessionId: identity.sessionId,
       rooms: new Set(),
+      activeView: null,
       recoveringThrough: null,
       pendingEvents: []
     };
     connections.add(connection);
 
-    const becameOnline = await touchPresence(identity.userId, identity.sessionId);
+    const becameOnline = await touchPresence(
+      identity.userId,
+      identity.sessionId
+    );
     if (becameOnline) await broadcastPresence(identity.userId);
 
     send(connection, {
@@ -147,7 +207,9 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
     socket.on('message', async (raw: unknown) => {
       let value: unknown;
       try {
-        value = JSON.parse(typeof raw === 'string' ? raw : String(raw));
+        value = JSON.parse(
+          typeof raw === 'string' ? raw : String(raw)
+        );
       } catch {
         return;
       }
@@ -156,7 +218,11 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
       if (!parsed.success) return;
 
       if (parsed.data.type === 'presence.heartbeat') {
-        const returnedOnline = await touchPresence(identity.userId, identity.sessionId);
+        const returnedOnline = await touchPresence(
+          identity.userId,
+          identity.sessionId
+        );
+        await refreshActiveView(connection);
         if (returnedOnline) await broadcastPresence(identity.userId);
         return;
       }
@@ -164,6 +230,7 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
       if (parsed.data.type === 'session.resume') {
         const rooms = [...new Set(parsed.data.rooms)];
         const authorizedRooms: string[] = [];
+
         for (const room of rooms) {
           if (await canAccessRoom(identity.userId, room)) {
             authorizedRooms.push(room);
@@ -203,6 +270,11 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
         return;
       }
 
+      if (parsed.data.type === 'view.active') {
+        await setActiveView(connection, parsed.data.room);
+        return;
+      }
+
       if (parsed.data.type === 'room.subscribe') {
         if (await canAccessRoom(identity.userId, parsed.data.room)) {
           connection.rooms.add(parsed.data.room);
@@ -212,13 +284,18 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
 
       if (parsed.data.type === 'room.unsubscribe') {
         connection.rooms.delete(parsed.data.room);
+        if (connection.activeView === parsed.data.room) {
+          await clearActiveView(connection);
+        }
         return;
       }
 
       if (!connection.rooms.has(parsed.data.room)) return;
 
       if (parsed.data.type === 'typing.started') {
-        const expiresAt = new Date(Date.now() + TYPING_TTL_MS).toISOString();
+        const expiresAt = new Date(
+          Date.now() + TYPING_TTL_MS
+        ).toISOString();
         await redis.set(
           'typing:' + parsed.data.room + ':' + identity.userId,
           '1',
@@ -236,7 +313,9 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
         return;
       }
 
-      await redis.del('typing:' + parsed.data.room + ':' + identity.userId);
+      await redis.del(
+        'typing:' + parsed.data.room + ':' + identity.userId
+      );
       const event: RealtimeEvent = {
         id: randomUUID(),
         type: 'typing.stopped',
@@ -249,12 +328,18 @@ export async function registerRealtimeGateway(app: FastifyInstance): Promise<voi
 
     socket.on('close', () => {
       connections.delete(connection);
-      void disconnectPresence(identity.userId, identity.sessionId)
+      void clearActiveView(connection)
+        .then(() =>
+          disconnectPresence(identity.userId, identity.sessionId)
+        )
         .then(async (becameOffline) => {
           if (becameOffline) await broadcastPresence(identity.userId);
         })
         .catch((error: unknown) => {
-          app.log.error({ err: error }, 'presence disconnect failed');
+          app.log.error(
+            { err: error },
+            'realtime disconnect cleanup failed'
+          );
         });
     });
   });

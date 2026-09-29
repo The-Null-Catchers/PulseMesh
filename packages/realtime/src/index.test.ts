@@ -18,6 +18,22 @@ describe('realtime contracts', () => {
     expect(result.success).toBe(true);
   });
 
+  it('accepts an authorized-view hint contract', () => {
+    expect(
+      clientRealtimeMessageSchema.safeParse({
+        type: 'view.active',
+        room: 'conversation:5d9ad22f-b7dc-4b4c-9a31-cfe8f17fc5a4'
+      }).success
+    ).toBe(true);
+
+    expect(
+      clientRealtimeMessageSchema.safeParse({
+        type: 'view.active',
+        room: null
+      }).success
+    ).toBe(true);
+  });
+
   it('requires typing events to carry an expiry contract', () => {
     const result = realtimeEventSchema.safeParse({
       id: '67d4e381-a0df-4d82-9177-cb1daa78bd74',
@@ -28,6 +44,27 @@ describe('realtime contracts', () => {
       payload: {
         userId: '78119f40-5b7e-48fa-a6da-d4d19d2cba45',
         expiresAt: new Date(Date.now() + 8_000).toISOString()
+      }
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('supports attachment IDs on created messages', () => {
+    const result = realtimeEventSchema.safeParse({
+      id: '67d4e381-a0df-4d82-9177-cb1daa78bd74',
+      type: 'message.created',
+      room: 'channel:54285544-0c19-4c53-838d-27a1155c461b',
+      occurredAt: new Date().toISOString(),
+      payload: {
+        id: 'f113742e-2534-443e-8353-34382100dfdf',
+        channelId: '54285544-0c19-4c53-838d-27a1155c461b',
+        conversationId: null,
+        senderId: '78119f40-5b7e-48fa-a6da-d4d19d2cba45',
+        body: '',
+        clientMessageId: null,
+        attachmentIds: ['d6efc282-7d92-4dcf-812d-18328892ec49'],
+        createdAt: new Date().toISOString()
       }
     });
 

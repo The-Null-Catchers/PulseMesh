@@ -70,6 +70,7 @@ export class PulseMeshRealtimeClient {
   private readonly seenIds = new Set<string>();
   private readonly seenOrder: string[] = [];
   private lastSequence: number;
+  private activeView: string | null = null;
 
   constructor(private readonly options: PulseMeshRealtimeOptions) {
     this.lastSequence = options.initialSequence ?? 0;
@@ -102,7 +103,13 @@ export class PulseMeshRealtimeClient {
 
   unsubscribe(room: string): void {
     this.rooms.delete(room);
+    if (this.activeView === room) this.activeView = null;
     this.send({ type: 'room.unsubscribe', room });
+  }
+
+  setActiveView(room: string | null): void {
+    this.activeView = room;
+    this.send({ type: 'view.active', room });
   }
 
   heartbeat(): void {
@@ -131,7 +138,9 @@ export class PulseMeshRealtimeClient {
       return;
     }
 
-    this.emitState(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
+    this.emitState(
+      this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting'
+    );
     const ticket = await this.options.getTicket();
     if (this.stopped) return;
 
@@ -166,7 +175,9 @@ export class PulseMeshRealtimeClient {
   private handleMessage(raw: unknown): void {
     let value: unknown;
     try {
-      value = JSON.parse(typeof raw === 'string' ? raw : String(raw));
+      value = JSON.parse(
+        typeof raw === 'string' ? raw : String(raw)
+      );
     } catch {
       return;
     }
@@ -180,6 +191,9 @@ export class PulseMeshRealtimeClient {
           rooms: [...this.rooms]
         });
       } else {
+        if (this.activeView) {
+          this.send({ type: 'view.active', room: this.activeView });
+        }
         this.emitState('ready');
       }
       return;
@@ -209,7 +223,12 @@ export class PulseMeshRealtimeClient {
   }
 
   private send(value: unknown): void {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    if (
+      !this.socket ||
+      this.socket.readyState !== WebSocket.OPEN
+    ) {
+      return;
+    }
     this.socket.send(JSON.stringify(value));
   }
 

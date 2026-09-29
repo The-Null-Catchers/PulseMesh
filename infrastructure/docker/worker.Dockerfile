@@ -7,5 +7,5 @@ COPY packages/shared/package.json packages/shared/package.json
 RUN pnpm install --no-frozen-lockfile
 COPY apps/worker apps/worker
 COPY packages packages
-RUN pnpm --filter @pulsemesh/worker build
+RUN pnpm --filter @pulsemesh/shared build && pnpm --filter @pulsemesh/worker build
 CMD ["pnpm", "--filter", "@pulsemesh/worker", "start"]
