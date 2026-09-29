@@ -5,11 +5,7 @@ import {
 } from "./message-cache";
 import type { Message, Page } from "./types";
 
-function message(
-  id: string,
-  clientMessageId: string,
-  body: string,
-): Message {
+function message(id: string, clientMessageId: string, body: string): Message {
   return {
     id,
     clientMessageId,
