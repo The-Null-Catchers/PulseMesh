@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   clientRealtimeMessageSchema,
-  realtimeEventSchema
+  realtimeEventSchema,
+  webRtcSignalSchema
 } from './index.js';
 
 describe('realtime contracts', () => {
@@ -25,11 +26,27 @@ describe('realtime contracts', () => {
         room: 'conversation:5d9ad22f-b7dc-4b4c-9a31-cfe8f17fc5a4'
       }).success
     ).toBe(true);
+  });
+
+  it('validates targeted WebRTC signaling', () => {
+    const signal = webRtcSignalSchema.safeParse({
+      kind: 'ice',
+      candidate: 'candidate:1 1 udp 1 203.0.113.1 50000 typ relay',
+      sdpMid: '0',
+      sdpMLineIndex: 0
+    });
+    expect(signal.success).toBe(true);
 
     expect(
       clientRealtimeMessageSchema.safeParse({
-        type: 'view.active',
-        room: null
+        type: 'call.signal',
+        callId: '5d9ad22f-b7dc-4b4c-9a31-cfe8f17fc5a4',
+        targetParticipantId:
+          '54285544-0c19-4c53-838d-27a1155c461b',
+        signal: {
+          kind: 'offer',
+          sdp: 'v=0\r\n'
+        }
       }).success
     ).toBe(true);
   });
@@ -63,7 +80,9 @@ describe('realtime contracts', () => {
         senderId: '78119f40-5b7e-48fa-a6da-d4d19d2cba45',
         body: '',
         clientMessageId: null,
-        attachmentIds: ['d6efc282-7d92-4dcf-812d-18328892ec49'],
+        attachmentIds: [
+          'd6efc282-7d92-4dcf-812d-18328892ec49'
+        ],
         createdAt: new Date().toISOString()
       }
     });

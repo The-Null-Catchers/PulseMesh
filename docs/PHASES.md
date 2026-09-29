@@ -31,57 +31,50 @@ Implemented:
 
 Implemented:
 
-- one-time WebSocket tickets
-- authorized room subscriptions
+- one-time WebSocket tickets and authorized rooms
 - Redis Pub/Sub fanout across API replicas
-- monotonic server event sequence
-- bounded per-room reconnect replay
-- replay buffering so live packets do not interleave with recovered history
-- multi-device presence leases
-- persisted custom presence preference
-- workspace presence snapshots
-- distributed offline expiry detection
-- typing TTL and client-side expiry contract
-- reconnecting SDK with exponential backoff, room restoration and deduplication
-
-Durable REST synchronization remains the final fallback when the temporary replay window cannot cover a disconnect.
+- reconnect sequence/replay
+- multi-device presence
+- typing TTL
+- reconnecting SDK
 
 ## Phase 4 — Files and Notifications
 
 Implemented:
 
-- signed S3-compatible uploads and MinIO development storage
-- explicit MIME allowlist and per-category size limits
-- object-size, metadata and content-type verification after direct upload
-- BullMQ file finalization with retry/backoff
-- magic-byte MIME validation before a file becomes usable
-- image dimensions and WebP thumbnail generation
-- atomic attachment-to-message transactions
-- attachment metadata in paginated message history
-- short-lived authorized download and thumbnail URLs
-- in-app notification records and scoped preferences
-- channel, workspace and conversation notification policy
-- FCM mobile device registration and delivery
-- Web Push subscription registration and VAPID delivery
-- mention email delivery when SMTP is configured
-- quiet hours, mute and do-not-disturb suppression
-- active-view suppression so users do not receive duplicate external notifications while viewing the destination
-- invalid mobile/web push endpoint deactivation
-
-Link previews and richer audio/voice-message processing use the same worker and object-storage boundary and remain later media-processing slices.
+- verified signed S3-compatible uploads
+- worker MIME validation and image thumbnails
+- atomic message attachments
+- in-app, FCM, Web Push and mention email delivery
+- scoped preferences, quiet hours, mute/DND rules
+- active-view external-notification suppression
 
 ## Phase 5 — Voice
 
+Implemented:
+
+- durable call sessions and active per-device participants
+- voice-channel and conversation audio calls
+- short-lived TURN REST credentials
+- targeted WebRTC signaling through private session rooms
+- offer, answer and ICE contracts
+- microphone mute/deafen state
+- microphone selection
+- ephemeral speaking state
+- browser mesh media adapter
+- Flutter mesh media adapter
+- replaceable provider boundary for a future SFU
+
+## Phase 6 — Video and Screen Sharing
+
 Next:
 
-- durable call sessions
-- WebRTC signaling contracts
-- Coturn credentials and ICE configuration
-- voice-channel membership
-- direct audio calls
-- microphone mute/deafen and speaking state
-- replaceable media-provider boundary for a future SFU
+- camera tracks
+- browser screen capture
+- active presenter state
+- track replacement without restarting the call
+- video-oriented call UI state recovery
 
-## Phases 6–8
+## Phases 7–8
 
-Video/screen sharing, offline-first mobile synchronization, moderation, E2EE, observability and final hardening land as separate green-CI slices.
+Offline-first mobile synchronization, moderation, E2EE, observability and final hardening land as separate green-CI slices.
