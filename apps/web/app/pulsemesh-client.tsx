@@ -7,18 +7,25 @@ import {
   useQuery,
   useQueryClient
 } from '@tanstack/react-query';
+import { BrowserMeshMediaSession } from '@pulsemesh/sdk';
 import {
   Bell,
   Bookmark,
   ChevronDown,
   Hash,
+  Headphones,
   Loader2,
   LogOut,
   MessageCircle,
+  Mic,
+  MicOff,
+  MonitorUp,
   FileText,
   MessageSquareReply,
   Paperclip,
   Pencil,
+  Phone,
+  PhoneOff,
   Pin,
   Plus,
   RotateCcw,
@@ -28,6 +35,8 @@ import {
   Sparkles,
   Trash2,
   Users,
+  Video,
+  VideoOff,
   X,
   Volume2,
   Wifi,
@@ -66,6 +75,33 @@ type Channel = {
   kind: 'text' | 'voice';
   visibility: string;
   position: number;
+};
+
+type CallParticipant = {
+  id: string;
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  muted: boolean;
+  deafened: boolean;
+  cameraEnabled: boolean;
+  screenSharing: boolean;
+  connectionState: string;
+  joinedAt: string;
+};
+
+type ActiveCall = {
+  id: string;
+  channelId: string | null;
+  conversationId: string | null;
+  createdBy: string;
+  kind: 'voice' | 'video';
+  status: string;
+  provider: string;
+  startedAt: string;
+  endedAt: string | null;
+  participants: CallParticipant[];
 };
 
 type SearchUser = {
@@ -217,6 +253,50 @@ async function request<T>(
   }
 
   return (await response.json()) as T;
+}
+
+function tokenSubject(token: string): string | null {
+  try {
+    const [, payload] = token.split('.');
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const parsed = JSON.parse(atob(normalized)) as { sub?: unknown };
+    return typeof parsed.sub === 'string' ? parsed.sub : null;
+  } catch {
+    return null;
+  }
+}
+
+function RemoteMedia({
+  stream,
+  video
+}: {
+  stream: MediaStream;
+  video: boolean;
+}) {
+  const ref = useRef<HTMLMediaElement | null>(null);
+
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
+
+  return video ? (
+    <video
+      ref={(element) => {
+        ref.current = element;
+      }}
+      autoPlay
+      playsInline
+      className="h-full w-full object-cover"
+    />
+  ) : (
+    <audio
+      ref={(element) => {
+        ref.current = element;
+      }}
+      autoPlay
+    />
+  );
 }
 
 function initials(name: string) {
@@ -454,11 +534,24 @@ function WorkspaceApp({
   const [searchQuery, setSearchQuery] = useState('');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
+  const [activeCallRoom, setActiveCallRoom] = useState<string | null>(null);
+  const [callError, setCallError] = useState<string | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [deafened, setDeafened] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [screenSharing, setScreenSharing] = useState(false);
+  const [localVideoStream, setLocalVideoStream] = useState<MediaStream | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [socketState, setSocketState] = useState<
     'connecting' | 'ready' | 'reconnecting'
   >('connecting');
   const [typing, setTyping] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
+  const mediaSessionRef = useRef<BrowserMeshMediaSession | null>(null);
+  const selfParticipantIdRef = useRef<string | null>(null);
+  const activeCallRef = useRef<ActiveCall | null>(null);
+  const activeCallRoomRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadXhrsRef = useRef<Map<string, XMLHttpRequest>>(new Map());
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -642,7 +735,7 @@ function WorkspaceApp({
               JSON.stringify({
                 type: 'session.resume',
                 lastSequence: Number.isFinite(sequence) ? sequence : 0,
-                rooms: [activeRoom]
+                rooms: [activeRoom, activeCallRoomRef.current].filter((room): room is string => Boolean(room))
               })
             );
             return;
@@ -675,6 +768,118 @@ function WorkspaceApp({
               'pulsemesh:last-sequence',
               String(event.sequence)
             );
+          }
+
+          if (
+            event.type === 'call.signal' &&
+            activeCallRef.current &&
+            event.payload.callId === activeCallRef.current.id
+          ) {
+            void mediaSessionRef.current
+              ?.handleSignal(
+                event.payload.fromParticipantId,
+                event.payload.signal
+              )
+              .catch((error) =>
+                setCallError(
+                  error instanceof Error
+                    ? error.message
+                    : 'WebRTC signaling failed'
+                )
+              );
+            return;
+          }
+
+          if (
+            activeCallRef.current &&
+            event.payload?.callId === activeCallRef.current.id &&
+            event.type === 'call.participant.joined'
+          ) {
+            const participant = event.payload.participant as CallParticipant;
+            setActiveCall((current) =>
+              current
+                ? {
+                    ...current,
+                    participants: [
+                      ...current.participants.filter(
+                        (item) => item.id !== participant.id
+                      ),
+                      participant
+                    ]
+                  }
+                : current
+            );
+            const selfId = selfParticipantIdRef.current;
+            if (selfId && participant.id !== selfId) {
+              void mediaSessionRef.current
+                ?.connectPeer(participant.id, selfId < participant.id)
+                .catch(() => undefined);
+            }
+            return;
+          }
+
+          if (
+            activeCallRef.current &&
+            event.payload?.callId === activeCallRef.current.id &&
+            event.type === 'call.participant.updated'
+          ) {
+            const participant = event.payload.participant as CallParticipant;
+            setActiveCall((current) =>
+              current
+                ? {
+                    ...current,
+                    participants: current.participants.map((item) =>
+                      item.id === participant.id ? participant : item
+                    )
+                  }
+                : current
+            );
+            return;
+          }
+
+          if (
+            activeCallRef.current &&
+            event.payload?.callId === activeCallRef.current.id &&
+            event.type === 'call.participant.left'
+          ) {
+            const participant = event.payload.participant as CallParticipant;
+            setActiveCall((current) =>
+              current
+                ? {
+                    ...current,
+                    participants: current.participants.filter(
+                      (item) => item.id !== participant.id
+                    )
+                  }
+                : current
+            );
+            setRemoteStreams((current) => {
+              const next = { ...current };
+              delete next[participant.id];
+              return next;
+            });
+            return;
+          }
+
+          if (
+            activeCallRef.current &&
+            event.type === 'call.ended' &&
+            event.payload.callId === activeCallRef.current.id
+          ) {
+            mediaSessionRef.current?.leave();
+            mediaSessionRef.current = null;
+            selfParticipantIdRef.current = null;
+            activeCallRef.current = null;
+            activeCallRoomRef.current = null;
+            setActiveCall(null);
+            setActiveCallRoom(null);
+            setLocalVideoStream(null);
+            setRemoteStreams({});
+            setCameraEnabled(false);
+            setScreenSharing(false);
+            setMuted(false);
+            setDeafened(false);
+            return;
           }
 
           if (
@@ -996,6 +1201,233 @@ function WorkspaceApp({
     (item) => !item.read_at
   ).length;
 
+
+  async function startCall(input: {
+    channelId?: string;
+    conversationId?: string;
+    kind: 'voice' | 'video';
+  }) {
+    if (activeCall) return;
+
+    setCallError(null);
+    let startedCallId: string | null = null;
+    try {
+      const [{ iceServers }, call] = await Promise.all([
+        request<{ iceServers: RTCIceServer[] }>('/calls/ice-config', token),
+        request<ActiveCall>('/calls', token, {
+          method: 'POST',
+          body: JSON.stringify(input)
+        })
+      ]);
+
+      startedCallId = call.id;
+      const userId = tokenSubject(token);
+      const selfParticipant = call.participants.find(
+        (participant) => participant.userId === userId
+      );
+      if (!selfParticipant) {
+        throw new Error('Current call participant could not be resolved');
+      }
+
+      const room = call.channelId
+        ? `channel:${call.channelId}`
+        : `conversation:${call.conversationId}`;
+
+      const media = new BrowserMeshMediaSession({
+        iceServers,
+        sendSignal: (targetParticipantId, signal) => {
+          if (socketRef.current?.readyState !== WebSocket.OPEN) return;
+          socketRef.current.send(
+            JSON.stringify({
+              type: 'call.signal',
+              callId: call.id,
+              targetParticipantId,
+              signal
+            })
+          );
+        },
+        onRemoteStream: (participantId, stream) => {
+          setRemoteStreams((current) => ({
+            ...current,
+            [participantId]: stream
+          }));
+        },
+        onScreenShareEnded: () => {
+          setScreenSharing(false);
+          void request(`/calls/${call.id}/participant`, token, {
+            method: 'PATCH',
+            body: JSON.stringify({ screenSharing: false })
+          }).catch(() => undefined);
+        }
+      });
+
+      mediaSessionRef.current = media;
+      selfParticipantIdRef.current = selfParticipant.id;
+      activeCallRef.current = call;
+      activeCallRoomRef.current = room;
+      setActiveCall(call);
+      setActiveCallRoom(room);
+
+      socketRef.current?.send(
+        JSON.stringify({ type: 'room.subscribe', room })
+      );
+
+      await media.startAudio();
+
+      if (call.kind === 'video') {
+        const stream = await media.startCamera();
+        setLocalVideoStream(stream);
+        setCameraEnabled(true);
+        await request(`/calls/${call.id}/participant`, token, {
+          method: 'PATCH',
+          body: JSON.stringify({ cameraEnabled: true })
+        });
+      }
+
+      for (const participant of call.participants) {
+        if (participant.id === selfParticipant.id) continue;
+        await media.connectPeer(
+          participant.id,
+          selfParticipant.id < participant.id
+        );
+      }
+    } catch (error) {
+      if (startedCallId) {
+        void request(`/calls/${startedCallId}/leave`, token, {
+          method: 'POST',
+          body: '{}'
+        }).catch(() => undefined);
+      }
+      mediaSessionRef.current?.leave();
+      mediaSessionRef.current = null;
+      selfParticipantIdRef.current = null;
+      activeCallRef.current = null;
+      activeCallRoomRef.current = null;
+      setActiveCall(null);
+      setActiveCallRoom(null);
+      setLocalVideoStream(null);
+      setRemoteStreams({});
+      setCallError(
+        error instanceof Error ? error.message : 'Could not start call'
+      );
+    }
+  }
+
+  async function updateParticipantState(
+    patch: Partial<{
+      muted: boolean;
+      deafened: boolean;
+      cameraEnabled: boolean;
+      screenSharing: boolean;
+    }>
+  ) {
+    if (!activeCall) return;
+    await request(`/calls/${activeCall.id}/participant`, token, {
+      method: 'PATCH',
+      body: JSON.stringify(patch)
+    });
+  }
+
+  async function toggleMuted() {
+    if (!activeCall) return;
+    const next = !muted;
+    mediaSessionRef.current?.setMuted(next);
+    setMuted(next);
+    try {
+      await updateParticipantState({ muted: next });
+    } catch (error) {
+      mediaSessionRef.current?.setMuted(!next);
+      setMuted(!next);
+      setCallError(error instanceof Error ? error.message : 'Mute failed');
+    }
+  }
+
+  async function toggleDeafened() {
+    if (!activeCall) return;
+    const next = !deafened;
+    mediaSessionRef.current?.setDeafened(next);
+    setDeafened(next);
+    try {
+      await updateParticipantState({ deafened: next });
+    } catch (error) {
+      mediaSessionRef.current?.setDeafened(!next);
+      setDeafened(!next);
+      setCallError(error instanceof Error ? error.message : 'Deafen failed');
+    }
+  }
+
+  async function toggleCamera() {
+    if (!activeCall || activeCall.kind !== 'video') return;
+    const media = mediaSessionRef.current;
+    if (!media) return;
+    try {
+      if (!cameraEnabled) {
+        const stream = await media.startCamera();
+        setLocalVideoStream(stream);
+        media.setCameraEnabled(true);
+      } else {
+        media.setCameraEnabled(false);
+      }
+      const next = !cameraEnabled;
+      setCameraEnabled(next);
+      await updateParticipantState({ cameraEnabled: next });
+    } catch (error) {
+      setCallError(error instanceof Error ? error.message : 'Camera failed');
+    }
+  }
+
+  async function toggleScreenShare() {
+    if (!activeCall?.conversationId) return;
+    const media = mediaSessionRef.current;
+    if (!media) return;
+    try {
+      if (screenSharing) {
+        await media.stopScreenShare();
+        setScreenSharing(false);
+        await updateParticipantState({ screenSharing: false });
+      } else {
+        const stream = await media.startScreenShare();
+        setLocalVideoStream(stream);
+        setScreenSharing(true);
+        await updateParticipantState({ screenSharing: true });
+      }
+    } catch (error) {
+      setCallError(
+        error instanceof Error ? error.message : 'Screen sharing failed'
+      );
+    }
+  }
+
+  async function leaveCall() {
+    if (!activeCall) return;
+    const callId = activeCall.id;
+    const room = activeCallRoom;
+    try {
+      await request(`/calls/${callId}/leave`, token, {
+        method: 'POST',
+        body: '{}'
+      });
+    } finally {
+      mediaSessionRef.current?.leave();
+      mediaSessionRef.current = null;
+      selfParticipantIdRef.current = null;
+      activeCallRef.current = null;
+      activeCallRoomRef.current = null;
+      setActiveCall(null);
+      setActiveCallRoom(null);
+      setLocalVideoStream(null);
+      setRemoteStreams({});
+      setMuted(false);
+      setDeafened(false);
+      setCameraEnabled(false);
+      setScreenSharing(false);
+      if (room && room !== activeRoom) {
+        socketRef.current?.send(
+          JSON.stringify({ type: 'room.unsubscribe', room })
+        );
+      }
+    }
+  }
 
   async function waitForFileReady(
     fileId: string,
@@ -1407,10 +1839,22 @@ function WorkspaceApp({
               voiceChannels.map((channel) => (
                 <button
                   key={channel.id}
-                  className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-slate-400 hover:bg-white/[0.04]"
+                  type="button"
+                  onClick={() =>
+                    void startCall({ channelId: channel.id, kind: 'voice' })
+                  }
+                  className={
+                    'flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm ' +
+                    (activeCall?.channelId === channel.id
+                      ? 'bg-emerald-400/10 text-emerald-300'
+                      : 'text-slate-400 hover:bg-white/[0.04]')
+                  }
                 >
                   <Volume2 className="size-4" />
-                  {channel.name}
+                  <span className="truncate">{channel.name}</span>
+                  {activeCall?.channelId === channel.id && (
+                    <span className="ml-auto text-[10px]">Connected</span>
+                  )}
                 </button>
               ))
             ) : (
@@ -1454,6 +1898,36 @@ function WorkspaceApp({
                 )}
                 {socketState}
               </div>
+              {currentConversation && !activeCall && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void startCall({
+                        conversationId: currentConversation.id,
+                        kind: 'voice'
+                      })
+                    }
+                    className="rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white"
+                    aria-label="Start voice call"
+                  >
+                    <Phone className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void startCall({
+                        conversationId: currentConversation.id,
+                        kind: 'video'
+                      })
+                    }
+                    className="rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white"
+                    aria-label="Start video call"
+                  >
+                    <Video className="size-4" />
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => setSearchOpen(true)}
@@ -1477,6 +1951,156 @@ function WorkspaceApp({
               </button>
             </div>
           </header>
+
+          {activeCall && (
+            <div className="border-b border-white/8 bg-[#081319]/95 px-4 py-3 md:px-6">
+              <div className="mx-auto flex max-w-4xl flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="grid size-10 place-items-center rounded-2xl bg-emerald-400/10 text-emerald-300">
+                      {activeCall.kind === 'video' ? (
+                        <Video className="size-4" />
+                      ) : (
+                        <Phone className="size-4" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">
+                        {activeCall.kind === 'video' ? 'Video call' : 'Voice call'}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {activeCall.participants.length} participant
+                        {activeCall.participants.length === 1 ? '' : 's'} · mesh WebRTC
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void toggleMuted()}
+                      className={
+                        'rounded-xl p-2 ' +
+                        (muted
+                          ? 'bg-rose-400/10 text-rose-300'
+                          : 'bg-white/[0.04] text-slate-400')
+                      }
+                      aria-label={muted ? 'Unmute' : 'Mute'}
+                    >
+                      {muted ? (
+                        <MicOff className="size-4" />
+                      ) : (
+                        <Mic className="size-4" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void toggleDeafened()}
+                      className={
+                        'rounded-xl p-2 ' +
+                        (deafened
+                          ? 'bg-amber-400/10 text-amber-300'
+                          : 'bg-white/[0.04] text-slate-400')
+                      }
+                      aria-label={deafened ? 'Undeafen' : 'Deafen'}
+                    >
+                      <Headphones className="size-4" />
+                    </button>
+                    {activeCall.kind === 'video' && (
+                      <button
+                        type="button"
+                        onClick={() => void toggleCamera()}
+                        className={
+                          'rounded-xl p-2 ' +
+                          (cameraEnabled
+                            ? 'bg-[#68e0cf]/10 text-[#9af5e8]'
+                            : 'bg-white/[0.04] text-slate-400')
+                        }
+                        aria-label={cameraEnabled ? 'Turn camera off' : 'Turn camera on'}
+                      >
+                        {cameraEnabled ? (
+                          <Video className="size-4" />
+                        ) : (
+                          <VideoOff className="size-4" />
+                        )}
+                      </button>
+                    )}
+                    {activeCall.conversationId && (
+                      <button
+                        type="button"
+                        onClick={() => void toggleScreenShare()}
+                        className={
+                          'rounded-xl p-2 ' +
+                          (screenSharing
+                            ? 'bg-[#68e0cf]/10 text-[#9af5e8]'
+                            : 'bg-white/[0.04] text-slate-400')
+                        }
+                        aria-label="Share screen"
+                      >
+                        <MonitorUp className="size-4" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void leaveCall()}
+                      className="rounded-xl bg-rose-500/15 p-2 text-rose-300 hover:bg-rose-500/20"
+                      aria-label="Leave call"
+                    >
+                      <PhoneOff className="size-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {callError && (
+                  <div className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs text-rose-200">
+                    {callError}
+                  </div>
+                )}
+
+                {activeCall.kind === 'video' && (
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                    {localVideoStream && (
+                      <div className="relative aspect-video overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                        <RemoteMedia stream={localVideoStream} video />
+                        <span className="absolute bottom-2 left-2 rounded-lg bg-black/50 px-2 py-1 text-[10px]">
+                          You
+                        </span>
+                      </div>
+                    )}
+                    {activeCall.participants
+                      .filter(
+                        (participant) =>
+                          participant.id !== selfParticipantIdRef.current &&
+                          remoteStreams[participant.id]
+                      )
+                      .map((participant) => (
+                        <div
+                          key={participant.id}
+                          className="relative aspect-video overflow-hidden rounded-2xl border border-white/10 bg-black/30"
+                        >
+                          <RemoteMedia
+                            stream={remoteStreams[participant.id]!}
+                            video
+                          />
+                          <span className="absolute bottom-2 left-2 rounded-lg bg-black/50 px-2 py-1 text-[10px]">
+                            {participant.displayName}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+
+                {activeCall.kind === 'voice' &&
+                  Object.entries(remoteStreams).map(([participantId, stream]) => (
+                    <RemoteMedia
+                      key={participantId}
+                      stream={stream}
+                      video={false}
+                    />
+                  ))}
+              </div>
+            </div>
+          )}
 
           <div className="relative flex-1 overflow-y-auto px-4 py-6 md:px-7">
             <div className="mx-auto max-w-3xl">
