@@ -1,8 +1,10 @@
-import 'dart:math' as math;
-
 Duration retryDelay(int attempts) {
-  final exponent = math.max(0, math.min(attempts - 1, 6));
-  final seconds = math.min(60, 1 << exponent);
+  var exponent = attempts - 1;
+  if (exponent < 0) exponent = 0;
+  if (exponent > 6) exponent = 6;
+
+  var seconds = 1 << exponent;
+  if (seconds > 60) seconds = 60;
   return Duration(seconds: seconds);
 }
 
