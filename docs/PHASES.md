@@ -80,14 +80,19 @@ Implemented:
 
 ## Phase 7 — Offline Mobile
 
-Next:
+Implemented:
 
-- local cached conversation/message database
-- pending outgoing queue
-- incremental synchronization cursors
-- idempotent reconnect reconciliation
-- connectivity-aware flush
+- SQLite recent-data cache for messages and workspace metadata
+- persistent pending outgoing queue
+- client-generated idempotency IDs
+- authoritative acknowledgement timestamps and IDs
+- durable PostgreSQL incremental message journal
+- race-safe initial high-water cursor bootstrap
+- delete-for-self user tombstones
+- atomic page + cursor reconciliation
+- reconnect repair without full-history downloads
+- connectivity-triggered queue flush with capped retry backoff
 
 ## Phase 8
 
-Moderation, E2EE, observability and final hardening land after offline sync as a separate green-CI slice.
+Moderation, optional E2EE, observability and final hardening land after offline sync as a separate green-CI slice.
