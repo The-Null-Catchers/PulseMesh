@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import {
-  decodeTokenPayload,
-  tokenExpiresAt,
-  tokenSubject
-} from './session';
+import { decodeTokenPayload, tokenExpiresAt, tokenSubject } from './session';
 
 function token(payload: Record<string, unknown>) {
-  const encoded = Buffer.from(JSON.stringify(payload))
-    .toString('base64url');
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `header.${encoded}.signature`;
 }
 
