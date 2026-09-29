@@ -579,7 +579,8 @@ function WorkspaceApp({
 
           if (
             event.room === activeRoom &&
-            event.type.startsWith('message.')
+            (event.type.startsWith('message.') ||
+              event.type.startsWith('reaction.'))
           ) {
             void queryClient.invalidateQueries({
               queryKey: ['messages', activeMessageKey]
