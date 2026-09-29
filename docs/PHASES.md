@@ -29,7 +29,7 @@ Implemented:
 
 ## Phase 3 — Realtime
 
-Implemented in the Phase 3 hardening slice:
+Implemented:
 
 - one-time WebSocket tickets
 - authorized room subscriptions
@@ -48,23 +48,40 @@ Durable REST synchronization remains the final fallback when the temporary repla
 
 ## Phase 4 — Files and Notifications
 
-Foundation already exists:
+Implemented:
 
-- signed S3-compatible uploads
-- MinIO local storage
-- file metadata model
-- BullMQ notification worker
-- in-app notification data model and preferences
+- signed S3-compatible uploads and MinIO development storage
+- explicit MIME allowlist and per-category size limits
+- object-size, metadata and content-type verification after direct upload
+- BullMQ file finalization with retry/backoff
+- magic-byte MIME validation before a file becomes usable
+- image dimensions and WebP thumbnail generation
+- atomic attachment-to-message transactions
+- attachment metadata in paginated message history
+- short-lived authorized download and thumbnail URLs
+- in-app notification records and scoped preferences
+- channel, workspace and conversation notification policy
+- FCM mobile device registration and delivery
+- Web Push subscription registration and VAPID delivery
+- mention email delivery when SMTP is configured
+- quiet hours, mute and do-not-disturb suppression
+- active-view suppression so users do not receive duplicate external notifications while viewing the destination
+- invalid mobile/web push endpoint deactivation
 
-Next work:
+Link previews and richer audio/voice-message processing use the same worker and object-storage boundary and remain later media-processing slices.
 
-- image thumbnail and preview jobs
-- attachment finalization and validation
-- link preview worker with SSRF protection
-- voice-message processing
-- FCM and Web Push delivery
-- duplicate-suppression rules for actively viewed conversations
+## Phase 5 — Voice
 
-## Phases 5–8
+Next:
 
-The WebRTC, offline sync, moderation, E2EE and observability documents define stable boundaries for subsequent PRs. Each phase should land only after CI for the previous slice is green so the repository remains deployable and reviewable.
+- durable call sessions
+- WebRTC signaling contracts
+- Coturn credentials and ICE configuration
+- voice-channel membership
+- direct audio calls
+- microphone mute/deafen and speaking state
+- replaceable media-provider boundary for a future SFU
+
+## Phases 6–8
+
+Video/screen sharing, offline-first mobile synchronization, moderation, E2EE, observability and final hardening land as separate green-CI slices.
