@@ -65,7 +65,10 @@ export async function conversationRoutes(
 
   app.post(
     '/conversations',
-    { preHandler: app.authenticate },
+    {
+      preHandler: app.authenticate,
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } }
+    },
     async (request, reply) => {
       const body = z
         .object({
@@ -82,6 +85,32 @@ export async function conversationRoutes(
           body.memberIds.filter((id) => id !== userId)
         )
       ];
+
+      const allowedMembers = await pool.query<{ id: string }>(
+        `SELECT DISTINCT target.user_id AS id
+         FROM workspace_members mine
+         JOIN workspace_members target
+           ON target.workspace_id=mine.workspace_id
+         WHERE mine.user_id=$1
+           AND target.user_id=ANY($2::uuid[])
+           AND target.user_id<>$1`,
+        [userId, uniqueMemberIds]
+      );
+
+      const allowedMemberIds = new Set(
+        allowedMembers.rows.map((row) => row.id)
+      );
+      const unauthorizedMemberIds = uniqueMemberIds.filter(
+        (id) => !allowedMemberIds.has(id)
+      );
+
+      if (unauthorizedMemberIds.length > 0) {
+        throw new AppError(
+          403,
+          'CONVERSATION_MEMBER_NOT_SHARED',
+          'Conversation members must share at least one workspace with you'
+        );
+      }
 
       if (
         body.kind === 'direct' &&
