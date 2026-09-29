@@ -53,7 +53,6 @@ import { request } from "../lib/api";
 import { initials } from "../lib/display";
 import { tokenExpiresAt } from "../lib/session";
 import type {
-  Attachment,
   Channel,
   Conversation,
   Message,
@@ -63,7 +62,6 @@ import type {
   SearchResponse,
   SearchUser,
   ThreadReply,
-  UploadItem,
   Workspace,
 } from "../lib/types";
 
