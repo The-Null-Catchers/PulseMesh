@@ -267,16 +267,25 @@ async function request<T>(
   return (await response.json()) as T;
 }
 
-function tokenSubject(token: string): string | null {
+function decodeTokenPayload(token: string): Record<string, unknown> | null {
   try {
     const [, payload] = token.split('.');
     if (!payload) return null;
     const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const parsed = JSON.parse(atob(normalized)) as { sub?: unknown };
-    return typeof parsed.sub === 'string' ? parsed.sub : null;
+    return JSON.parse(atob(normalized)) as Record<string, unknown>;
   } catch {
     return null;
   }
+}
+
+function tokenSubject(token: string): string | null {
+  const parsed = decodeTokenPayload(token);
+  return typeof parsed?.sub === 'string' ? parsed.sub : null;
+}
+
+function tokenExpiresAt(token: string): number | null {
+  const parsed = decodeTokenPayload(token);
+  return typeof parsed?.exp === 'number' ? parsed.exp * 1000 : null;
 }
 
 function RemoteMedia({
@@ -3163,6 +3172,30 @@ function WorkspaceApp({
 function PulseMeshClientInner() {
   const [token, setToken] = useState<string | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
+  const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
+
+  async function refreshSession(): Promise<string | null> {
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+
+    const pending = request<{ accessToken: string }>('/auth/refresh', null, {
+      method: 'POST',
+      body: '{}'
+    })
+      .then((result) => {
+        setToken(result.accessToken);
+        return result.accessToken;
+      })
+      .catch(() => {
+        setToken(null);
+        return null;
+      })
+      .finally(() => {
+        refreshPromiseRef.current = null;
+      });
+
+    refreshPromiseRef.current = pending;
+    return pending;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -3184,6 +3217,42 @@ function PulseMeshClientInner() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+
+    const expiresAt = tokenExpiresAt(token);
+    const refreshAt = expiresAt
+      ? Math.max(expiresAt - Date.now() - 60_000, 5_000)
+      : 10 * 60_000;
+
+    const timer = window.setTimeout(() => {
+      void refreshSession();
+    }, refreshAt);
+
+    const refreshIfNeeded = () => {
+      const currentExpiry = tokenExpiresAt(token);
+      if (
+        !currentExpiry ||
+        currentExpiry - Date.now() <= 90_000
+      ) {
+        void refreshSession();
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refreshIfNeeded();
+    };
+
+    window.addEventListener('focus', refreshIfNeeded);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('focus', refreshIfNeeded);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [token]);
 
   if (bootstrapping) {
     return (
