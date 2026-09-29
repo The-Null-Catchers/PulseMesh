@@ -1,6 +1,7 @@
 import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import nodemailer from 'nodemailer';
+import { processFileJob } from './files.js';
 
 const redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
   maxRetriesPerRequest: null
@@ -19,7 +20,7 @@ const transport =
       })
     : null;
 
-const worker = new Worker(
+const notificationWorker = new Worker(
   'notifications',
   async (job) => {
     if (job.name !== 'email.verify' && job.name !== 'password.reset') return;
@@ -29,7 +30,9 @@ const worker = new Worker(
     const subject = isVerification
       ? 'Verify your PulseMesh email'
       : 'Reset your PulseMesh password';
-    const path = isVerification ? '/verify-email?token=' : '/reset-password?token=';
+    const path = isVerification
+      ? '/verify-email?token='
+      : '/reset-password?token=';
     const link =
       (process.env.WEB_ORIGIN ?? 'http://localhost:3000') +
       path +
@@ -60,21 +63,39 @@ const worker = new Worker(
   }
 );
 
-worker.on('completed', (job) => {
-  console.info(
-    JSON.stringify({ event: 'job.completed', jobId: job.id, name: job.name })
-  );
+const fileWorker = new Worker('files', processFileJob, {
+  connection: redis,
+  concurrency: 4
 });
 
-worker.on('failed', (job, error) => {
-  console.error(
-    JSON.stringify({
-      event: 'job.failed',
-      jobId: job?.id,
-      name: job?.name,
-      error: error.message
-    })
-  );
-});
+for (const worker of [notificationWorker, fileWorker]) {
+  worker.on('completed', (job) => {
+    console.info(
+      JSON.stringify({
+        event: 'job.completed',
+        queue: worker.name,
+        jobId: job.id,
+        name: job.name
+      })
+    );
+  });
 
-console.info(JSON.stringify({ event: 'worker.ready', queue: 'notifications' }));
+  worker.on('failed', (job, error) => {
+    console.error(
+      JSON.stringify({
+        event: 'job.failed',
+        queue: worker.name,
+        jobId: job?.id,
+        name: job?.name,
+        error: error.message
+      })
+    );
+  });
+}
+
+console.info(
+  JSON.stringify({
+    event: 'worker.ready',
+    queues: ['notifications', 'files']
+  })
+);
