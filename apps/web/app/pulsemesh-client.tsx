@@ -104,6 +104,18 @@ type ActiveCall = {
   participants: CallParticipant[];
 };
 
+type PresenceMember = {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  status: 'online' | 'idle' | 'do-not-disturb' | 'offline';
+  customText: string | null;
+  lastSeenAt: string | null;
+  connectedDevices: number;
+  activeWorkspaceId: string | null;
+};
+
 type SearchUser = {
   id: string;
   username: string;
@@ -556,6 +568,7 @@ function WorkspaceApp({
   const uploadXhrsRef = useRef<Map<string, XMLHttpRequest>>(new Map());
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
+  const lastReadRef = useRef<Record<string, string>>({});
 
   const workspaces = useQuery({
     queryKey: ['workspaces'],
@@ -683,6 +696,16 @@ function WorkspaceApp({
       request<{ items: NotificationItem[] }>('/notifications', token)
   });
 
+  const presence = useQuery({
+    queryKey: ['presence', workspaceId],
+    enabled: Boolean(workspaceId),
+    queryFn: () =>
+      request<{ items: PresenceMember[] }>(
+        `/workspaces/${workspaceId}/presence`,
+        token
+      )
+  });
+
   const thread = useQuery({
     queryKey: ['thread', activeThread?.id],
     enabled: Boolean(activeThread?.id),
@@ -735,7 +758,11 @@ function WorkspaceApp({
               JSON.stringify({
                 type: 'session.resume',
                 lastSequence: Number.isFinite(sequence) ? sequence : 0,
-                rooms: [activeRoom, activeCallRoomRef.current].filter((room): room is string => Boolean(room))
+                rooms: [
+                  activeRoom,
+                  workspaceId ? `workspace:${workspaceId}` : null,
+                  activeCallRoomRef.current
+                ].filter((room): room is string => Boolean(room))
               })
             );
             return;
@@ -768,6 +795,30 @@ function WorkspaceApp({
               'pulsemesh:last-sequence',
               String(event.sequence)
             );
+          }
+
+          if (
+            event.type === 'presence.updated' &&
+            event.room === `workspace:${workspaceId}`
+          ) {
+            queryClient.setQueryData<{ items: PresenceMember[] }>(
+              ['presence', workspaceId],
+              (current) => ({
+                items: (current?.items ?? []).map((member) =>
+                  member.userId === event.payload.userId
+                    ? {
+                        ...member,
+                        status: event.payload.status,
+                        customText: event.payload.customText,
+                        lastSeenAt: event.payload.lastSeenAt,
+                        connectedDevices: event.payload.connectedDevices,
+                        activeWorkspaceId: event.payload.activeWorkspaceId
+                      }
+                    : member
+                )
+              })
+            );
+            return;
           }
 
           if (
@@ -938,7 +989,7 @@ function WorkspaceApp({
       socketRef.current = null;
       setTyping(false);
     };
-  }, [activeMessageKey, activeRoom, queryClient, token]);
+  }, [activeMessageKey, activeRoom, queryClient, token, workspaceId]);
 
   const sendMessage = useMutation({
     mutationFn: async ({
@@ -1174,6 +1225,50 @@ function WorkspaceApp({
       }),
     onSettled: onLoggedOut
   });
+
+  useEffect(() => {
+    if (socketState !== 'ready') return;
+    const heartbeat = () => {
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(JSON.stringify({ type: 'presence.heartbeat' }));
+      }
+    };
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 25_000);
+    return () => window.clearInterval(timer);
+  }, [socketState]);
+
+  useEffect(() => {
+    const latestMessage = messages.data?.items[0];
+    if (!latestMessage || !activeMessageKey || socketState !== 'ready') return;
+
+    if (lastReadRef.current[activeMessageKey] === latestMessage.id) return;
+    lastReadRef.current[activeMessageKey] = latestMessage.id;
+
+    void request('/read-state', token, {
+      method: 'PUT',
+      body: JSON.stringify(
+        channelId
+          ? {
+              channelId,
+              lastReadMessageId: latestMessage.id
+            }
+          : {
+              conversationId,
+              lastReadMessageId: latestMessage.id
+            }
+      )
+    }).catch(() => {
+      delete lastReadRef.current[activeMessageKey];
+    });
+  }, [
+    activeMessageKey,
+    channelId,
+    conversationId,
+    messages.data,
+    socketState,
+    token
+  ]);
 
   const currentWorkspace = workspaces.data?.items.find(
     (item) => item.id === workspaceId
@@ -2476,14 +2571,63 @@ function WorkspaceApp({
               </p>
             </div>
           </div>
-          <div className="p-4">
+          <div className="flex-1 overflow-y-auto p-4">
             <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-              <Users className="size-4 text-[#68e0cf]" />
-              <p className="mt-3 text-sm font-medium">Live workspace</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                Presence, member directory and thread panels can attach here
-                without changing the core conversation layout.
+              <div className="flex items-center gap-2">
+                <Users className="size-4 text-[#68e0cf]" />
+                <p className="text-sm font-medium">Workspace members</p>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Realtime presence across connected devices.
               </p>
+
+              <div className="mt-4 space-y-2">
+                {(presence.data?.items ?? []).map((member) => (
+                  <div
+                    key={member.userId}
+                    className="flex items-center gap-3 rounded-xl px-2 py-2"
+                  >
+                    <div className="relative grid size-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-semibold">
+                      {initials(member.displayName) || '?'}
+                      <span
+                        className={
+                          'absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[#0b171c] ' +
+                          (member.status === 'online'
+                            ? 'bg-emerald-400'
+                            : member.status === 'idle'
+                              ? 'bg-amber-400'
+                              : member.status === 'do-not-disturb'
+                                ? 'bg-rose-400'
+                                : 'bg-slate-600')
+                        }
+                        title={member.status}
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-slate-300">
+                        {member.displayName}
+                      </p>
+                      <p className="truncate text-[10px] text-slate-600">
+                        {member.customText
+                          ? member.customText
+                          : member.status === 'offline' && member.lastSeenAt
+                            ? `Last seen ${new Date(member.lastSeenAt).toLocaleString()}`
+                            : member.status}
+                      </p>
+                    </div>
+                    {member.connectedDevices > 1 && (
+                      <span className="ml-auto text-[10px] text-slate-600">
+                        {member.connectedDevices} devices
+                      </span>
+                    )}
+                  </div>
+                ))}
+                {presence.isLoading && (
+                  <div className="grid h-24 place-items-center">
+                    <Loader2 className="size-4 animate-spin text-[#68e0cf]" />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </aside>
