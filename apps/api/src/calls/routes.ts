@@ -84,10 +84,19 @@ async function callResponse(call: CallRow) {
 
 async function destinationAccess(input: {
   userId: string;
+  kind: 'voice' | 'video';
   channelId?: string;
   conversationId?: string;
 }): Promise<{ room: string; workspaceId: string | null }> {
   if (input.channelId) {
+    if (input.kind !== 'voice') {
+      throw new AppError(
+        400,
+        'VOICE_CHANNEL_AUDIO_ONLY',
+        'Workspace voice channels are audio-only in the mesh provider'
+      );
+    }
+
     const channel = await pool.query<{
       workspace_id: string;
       kind: string;
@@ -206,7 +215,7 @@ export async function callRoutes(
         .object({
           channelId: z.string().uuid().optional(),
           conversationId: z.string().uuid().optional(),
-          kind: z.literal('voice').default('voice')
+          kind: z.enum(['voice', 'video']).default('voice')
         })
         .refine(
           (value) =>
@@ -225,6 +234,7 @@ export async function callRoutes(
 
       const access = await destinationAccess({
         userId,
+        kind: body.kind,
         ...(body.channelId
           ? { channelId: body.channelId }
           : {}),
@@ -390,6 +400,8 @@ export async function callRoutes(
         .object({
           muted: z.boolean().optional(),
           deafened: z.boolean().optional(),
+          cameraEnabled: z.boolean().optional(),
+          screenSharing: z.boolean().optional(),
           connectionState: z
             .enum([
               'connecting',
@@ -418,14 +430,32 @@ export async function callRoutes(
         );
       }
 
+      if (body.cameraEnabled && context.kind !== 'video') {
+        throw new AppError(
+          409,
+          'CAMERA_NOT_AVAILABLE',
+          'Camera can only be enabled in a video call'
+        );
+      }
+
+      if (body.screenSharing && !context.conversation_id) {
+        throw new AppError(
+          409,
+          'SCREEN_SHARE_NOT_AVAILABLE',
+          'Screen sharing is available in direct and group calls'
+        );
+      }
+
       const result = await pool.query<ParticipantRow>(
-        'UPDATE call_participants p SET muted=COALESCE($4,muted),deafened=COALESCE($5,deafened),connection_state=COALESCE($6,connection_state),updated_at=now() FROM users u WHERE p.call_id=$1 AND p.user_id=$2 AND p.session_id=$3 AND p.left_at IS NULL AND u.id=p.user_id RETURNING p.id,p.user_id,u.username,u.display_name,u.avatar_url,p.muted,p.deafened,p.camera_enabled,p.screen_sharing,p.connection_state,p.joined_at',
+        'UPDATE call_participants p SET muted=COALESCE($4,muted),deafened=COALESCE($5,deafened),camera_enabled=COALESCE($6,camera_enabled),screen_sharing=COALESCE($7,screen_sharing),connection_state=COALESCE($8,connection_state),updated_at=now() FROM users u WHERE p.call_id=$1 AND p.user_id=$2 AND p.session_id=$3 AND p.left_at IS NULL AND u.id=p.user_id RETURNING p.id,p.user_id,u.username,u.display_name,u.avatar_url,p.muted,p.deafened,p.camera_enabled,p.screen_sharing,p.connection_state,p.joined_at',
         [
           params.callId,
           userId,
           sessionId,
           body.muted ?? null,
           body.deafened ?? null,
+          body.cameraEnabled ?? null,
+          body.screenSharing ?? null,
           body.connectionState ?? null
         ]
       );

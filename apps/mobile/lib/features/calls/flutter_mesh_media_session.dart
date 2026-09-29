@@ -21,7 +21,8 @@ class FlutterMeshMediaSession {
   final SignalSender sendSignal;
   final RemoteStreamHandler? onRemoteStream;
 
-  MediaStream? _localStream;
+  MediaStreamTrack? _audioTrack;
+  MediaStreamTrack? _cameraTrack;
   final Map<String, RTCPeerConnection> _peers = {};
   final Map<String, MediaStream> _remoteStreams = {};
   bool _deafened = false;
@@ -36,27 +37,55 @@ class FlutterMeshMediaSession {
       'video': false,
     });
 
-    for (final track in _localStream?.getTracks() ?? <MediaStreamTrack>[]) {
-      track.stop();
-    }
-    _localStream = stream;
-
     final tracks = stream.getAudioTracks();
-    if (tracks.isNotEmpty) {
-      final track = tracks.first;
-      for (final peer in _peers.values) {
-        final senders = await peer.getSenders();
-        final audioSenders = senders
-            .where((sender) => sender.track?.kind == 'audio')
-            .toList();
-        if (audioSenders.isNotEmpty) {
-          await audioSenders.first.replaceTrack(track);
-        } else {
-          await peer.addTrack(track, stream);
-        }
+    if (tracks.isEmpty) {
+      for (final track in stream.getTracks()) {
+        track.stop();
       }
+      throw StateError('Microphone did not produce an audio track');
     }
 
+    final wasMuted = _audioTrack?.enabled == false;
+    _audioTrack?.stop();
+    _audioTrack = tracks.first;
+    _audioTrack!.enabled = !wasMuted;
+
+    await _replaceTrackForAllPeers(
+      kind: 'audio',
+      track: _audioTrack!,
+      stream: stream,
+    );
+    return stream;
+  }
+
+  Future<MediaStream> startCamera({String? deviceId}) async {
+    final videoConstraints = deviceId == null
+        ? <String, dynamic>{'facingMode': 'user'}
+        : <String, dynamic>{'deviceId': deviceId};
+
+    final stream = await navigator.mediaDevices.getUserMedia({
+      'audio': false,
+      'video': videoConstraints,
+    });
+
+    final tracks = stream.getVideoTracks();
+    if (tracks.isEmpty) {
+      for (final track in stream.getTracks()) {
+        track.stop();
+      }
+      throw StateError('Camera did not produce a video track');
+    }
+
+    final wasDisabled = _cameraTrack?.enabled == false;
+    _cameraTrack?.stop();
+    _cameraTrack = tracks.first;
+    _cameraTrack!.enabled = !wasDisabled;
+
+    await _replaceTrackForAllPeers(
+      kind: 'video',
+      track: _cameraTrack!,
+      stream: stream,
+    );
     return stream;
   }
 
@@ -121,10 +150,8 @@ class FlutterMeshMediaSession {
   }
 
   void setMuted(bool muted) {
-    for (final track
-        in _localStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
-      track.enabled = !muted;
-    }
+    final track = _audioTrack;
+    if (track != null) track.enabled = !muted;
   }
 
   void setDeafened(bool deafened) {
@@ -136,16 +163,17 @@ class FlutterMeshMediaSession {
     }
   }
 
+  void setCameraEnabled(bool enabled) {
+    final track = _cameraTrack;
+    if (track != null) track.enabled = enabled;
+  }
+
   Future<void> selectMicrophone(String deviceId) async {
-    final currentTracks = _localStream?.getAudioTracks() ?? [];
-    final wasMuted =
-        currentTracks.isNotEmpty && !currentTracks.first.enabled;
-    final stream = await startAudio(deviceId: deviceId);
-    if (wasMuted) {
-      for (final track in stream.getAudioTracks()) {
-        track.enabled = false;
-      }
-    }
+    await startAudio(deviceId: deviceId);
+  }
+
+  Future<void> selectCamera(String deviceId) async {
+    await startCamera(deviceId: deviceId);
   }
 
   Future<void> leave() async {
@@ -161,10 +189,10 @@ class FlutterMeshMediaSession {
     }
     _remoteStreams.clear();
 
-    for (final track in _localStream?.getTracks() ?? <MediaStreamTrack>[]) {
-      track.stop();
-    }
-    _localStream = null;
+    _audioTrack?.stop();
+    _cameraTrack?.stop();
+    _audioTrack = null;
+    _cameraTrack = null;
   }
 
   Future<RTCPeerConnection> _ensurePeer(
@@ -177,11 +205,22 @@ class FlutterMeshMediaSession {
       'iceServers': iceServers,
     });
 
-    final localStream = _localStream;
-    if (localStream != null) {
-      for (final track in localStream.getTracks()) {
-        await peer.addTrack(track, localStream);
-      }
+    final audioTrack = _audioTrack;
+    if (audioTrack != null) {
+      final stream = await createLocalMediaStream(
+        'pulsemesh-audio-$participantId',
+      );
+      await stream.addTrack(audioTrack);
+      await peer.addTrack(audioTrack, stream);
+    }
+
+    final cameraTrack = _cameraTrack;
+    if (cameraTrack != null) {
+      final stream = await createLocalMediaStream(
+        'pulsemesh-video-$participantId',
+      );
+      await stream.addTrack(cameraTrack);
+      await peer.addTrack(cameraTrack, stream);
     }
 
     peer.onIceCandidate = (candidate) {
@@ -207,5 +246,23 @@ class FlutterMeshMediaSession {
 
     _peers[participantId] = peer;
     return peer;
+  }
+
+  Future<void> _replaceTrackForAllPeers({
+    required String kind,
+    required MediaStreamTrack track,
+    required MediaStream stream,
+  }) async {
+    for (final peer in _peers.values) {
+      final senders = await peer.getSenders();
+      final matching = senders
+          .where((sender) => sender.track?.kind == kind)
+          .toList();
+      if (matching.isNotEmpty) {
+        await matching.first.replaceTrack(track);
+      } else {
+        await peer.addTrack(track, stream);
+      }
+    }
   }
 }
