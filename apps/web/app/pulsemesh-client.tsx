@@ -723,7 +723,7 @@ function WorkspaceApp({
           <div className="mb-2 grid size-11 place-items-center rounded-2xl bg-[linear-gradient(135deg,#68e0cf,#73a7ff)] font-black text-[#061013]">
             P
           </div>
-          {workspaces.data.items.map((workspace) => (
+          {(workspaces.data?.items ?? []).map((workspace) => (
             <button
               key={workspace.id}
               onClick={() => {
