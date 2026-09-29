@@ -42,7 +42,14 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AuthScreen } from "../components/auth-screen";
 import { RemoteMedia } from "../components/remote-media";
 import { useFileUploads } from "../hooks/use-file-uploads";
@@ -51,7 +58,7 @@ import { useMessageActions } from "../hooks/use-message-actions";
 import { useNotifications } from "../hooks/use-notifications";
 import { usePulseMeshCall } from "../hooks/use-pulsemesh-call";
 import { usePulseMeshRealtime } from "../hooks/use-pulsemesh-realtime";
-import { request } from "../lib/api";
+import { request, setAccessTokenRefresher } from "../lib/api";
 import { initials } from "../lib/display";
 import { tokenExpiresAt } from "../lib/session";
 import type {
@@ -1911,7 +1918,7 @@ function PulseMeshClientInner() {
   const [bootstrapping, setBootstrapping] = useState(true);
   const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
 
-  async function refreshSession(): Promise<string | null> {
+  const refreshSession = useCallback(async (): Promise<string | null> => {
     if (refreshPromiseRef.current) return refreshPromiseRef.current;
 
     const pending = request<{ accessToken: string }>("/auth/refresh", null, {
@@ -1932,7 +1939,12 @@ function PulseMeshClientInner() {
 
     refreshPromiseRef.current = pending;
     return pending;
-  }
+  }, []);
+
+  useEffect(() => {
+    setAccessTokenRefresher(refreshSession);
+    return () => setAccessTokenRefresher(null);
+  }, [refreshSession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1986,7 +1998,7 @@ function PulseMeshClientInner() {
       window.removeEventListener("focus", refreshIfNeeded);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [token]);
+  }, [refreshSession, token]);
 
   if (bootstrapping) {
     return (
