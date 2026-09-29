@@ -20,6 +20,7 @@ type UsePulseMeshRealtimeInput = {
   activeRoom: string | null;
   activeMessageKey: string | null;
   workspaceId: string | null;
+  currentUserId: string | null;
   socketRef: MutableRefObject<WebSocket | null>;
   activeCallRef: MutableRefObject<ActiveCall | null>;
   activeCallRoomRef: MutableRefObject<string | null>;
@@ -41,6 +42,7 @@ export function usePulseMeshRealtime({
   activeRoom,
   activeMessageKey,
   workspaceId,
+  currentUserId,
   socketRef,
   activeCallRef,
   activeCallRoomRef,
@@ -58,7 +60,10 @@ export function usePulseMeshRealtime({
 }: UsePulseMeshRealtimeInput) {
   const queryClient = useQueryClient();
   const [socketState, setSocketState] = useState<SocketState>("connecting");
-  const [typing, setTyping] = useState(false);
+  const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  const typingTimersRef = useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
 
@@ -299,12 +304,54 @@ export function usePulseMeshRealtime({
             });
           }
 
-          if (event.room === activeRoom && event.type === "typing.started") {
-            setTyping(true);
-          }
+          if (
+            event.room === activeRoom &&
+            (event.type === "typing.started" ||
+              event.type === "typing.stopped")
+          ) {
+            const typingUserId = String(event.payload?.userId ?? "");
+            if (!typingUserId || typingUserId === currentUserId) return;
 
-          if (event.room === activeRoom && event.type === "typing.stopped") {
-            setTyping(false);
+            const existingTimer = typingTimersRef.current.get(typingUserId);
+            if (existingTimer) {
+              clearTimeout(existingTimer);
+              typingTimersRef.current.delete(typingUserId);
+            }
+
+            if (event.type === "typing.stopped") {
+              setTypingUserIds((current) =>
+                current.filter((userId) => userId !== typingUserId),
+              );
+              return;
+            }
+
+            const expiresAt = Date.parse(
+              String(event.payload?.expiresAt ?? ""),
+            );
+            const remainingMs = Number.isFinite(expiresAt)
+              ? expiresAt - Date.now()
+              : 8_000;
+
+            if (remainingMs <= 0) {
+              setTypingUserIds((current) =>
+                current.filter((userId) => userId !== typingUserId),
+              );
+              return;
+            }
+
+            setTypingUserIds((current) =>
+              current.includes(typingUserId)
+                ? current
+                : [...current, typingUserId],
+            );
+
+            const timer = setTimeout(() => {
+              typingTimersRef.current.delete(typingUserId);
+              setTypingUserIds((current) =>
+                current.filter((userId) => userId !== typingUserId),
+              );
+            }, remainingMs);
+            typingTimersRef.current.set(typingUserId, timer);
           }
         };
 
@@ -340,13 +387,18 @@ export function usePulseMeshRealtime({
       if (retryRef.current) clearTimeout(retryRef.current);
       socketRef.current?.close(1000, "Conversation changed");
       socketRef.current = null;
-      setTyping(false);
+      for (const timer of typingTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      typingTimersRef.current.clear();
+      setTypingUserIds([]);
     };
   }, [
     activeCallRef,
     activeCallRoomRef,
     activeMessageKey,
     activeRoom,
+    currentUserId,
     mediaSessionRef,
     queryClient,
     selfParticipantIdRef,
@@ -385,6 +437,6 @@ export function usePulseMeshRealtime({
   return {
     socketRef,
     socketState,
-    typing,
+    typingUserIds,
   };
 }
