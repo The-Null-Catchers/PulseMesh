@@ -9,6 +9,7 @@ import { canAccessConversation } from '../authorization/service.js';
 import { publishRealtime } from '../realtime/bus.js';
 import { attachReadyFiles } from '../messages/attachments.js';
 import { createMentionNotifications } from '../messages/mentions.js';
+import { messagesCreated } from '../observability/metrics.js';
 
 type ConversationMessageRow = {
   id: string;
@@ -305,6 +306,7 @@ export async function conversationRoutes(
       };
 
       await publishRealtime(event);
+      messagesCreated.inc({ destination: 'conversation' });
       return reply.code(201).send(event.payload);
     }
   );
