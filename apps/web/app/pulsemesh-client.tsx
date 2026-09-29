@@ -342,156 +342,6 @@ function AuthScreen({
         </section>
       </div>
 
-      {newConversationOpen && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) {
-              setNewConversationOpen(false);
-            }
-          }}
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="new-conversation-title"
-            className="w-full max-w-lg rounded-[28px] border border-white/10 bg-[#0a171d] p-5 shadow-2xl shadow-black/50"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#68e0cf]">
-                  New conversation
-                </p>
-                <h2 id="new-conversation-title" className="mt-1 text-xl font-semibold">
-                  Start a DM or group
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setNewConversationOpen(false)}
-                className="rounded-xl border border-white/8 px-3 py-1.5 text-sm text-slate-400 hover:text-white"
-              >
-                Close
-              </button>
-            </div>
-
-            <label className="mt-5 block">
-              <span className="mb-1.5 block text-xs text-slate-400">
-                Find people
-              </span>
-              <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.035] px-3">
-                <Search className="size-4 text-slate-500" />
-                <input
-                  value={userSearch}
-                  onChange={(event) => setUserSearch(event.target.value)}
-                  className="w-full bg-transparent py-3 text-sm outline-none"
-                  placeholder="Search by name or username"
-                  autoFocus
-                />
-              </div>
-            </label>
-
-            <div className="mt-3 max-h-52 space-y-1 overflow-y-auto">
-              {userSearch.trim().length < 2 ? (
-                <p className="px-2 py-5 text-center text-sm text-slate-600">
-                  Type at least 2 characters.
-                </p>
-              ) : userSearchResults.isLoading ? (
-                <div className="grid h-20 place-items-center">
-                  <Loader2 className="size-5 animate-spin text-[#68e0cf]" />
-                </div>
-              ) : (userSearchResults.data?.users ?? []).length ? (
-                (userSearchResults.data?.users ?? []).map((user) => {
-                  const selected = selectedMemberIds.includes(user.id);
-                  return (
-                    <button
-                      key={user.id}
-                      type="button"
-                      onClick={() =>
-                        setSelectedMemberIds((current) =>
-                          selected
-                            ? current.filter((id) => id !== user.id)
-                            : [...current, user.id]
-                        )
-                      }
-                      className={
-                        'flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition ' +
-                        (selected
-                          ? 'bg-[#68e0cf]/10 text-white'
-                          : 'hover:bg-white/[0.04]')
-                      }
-                    >
-                      <div className="grid size-9 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-semibold">
-                        {initials(user.display_name) || '?'}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
-                          {user.display_name}
-                        </p>
-                        <p className="truncate text-xs text-slate-500">
-                          @{user.username}
-                        </p>
-                      </div>
-                      <span className="ml-auto text-xs text-[#68e0cf]">
-                        {selected ? 'Selected' : 'Add'}
-                      </span>
-                    </button>
-                  );
-                })
-              ) : (
-                <p className="px-2 py-5 text-center text-sm text-slate-600">
-                  No matching workspace members.
-                </p>
-              )}
-            </div>
-
-            {selectedMemberIds.length > 1 && (
-              <label className="mt-4 block">
-                <span className="mb-1.5 block text-xs text-slate-400">
-                  Group name
-                </span>
-                <input
-                  value={groupName}
-                  onChange={(event) => setGroupName(event.target.value)}
-                  maxLength={100}
-                  className="w-full rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm outline-none focus:border-[#68e0cf]/50"
-                  placeholder="Optional group name"
-                />
-              </label>
-            )}
-
-            {createConversation.error && (
-              <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
-                {createConversation.error instanceof Error
-                  ? createConversation.error.message
-                  : 'Could not create conversation'}
-              </div>
-            )}
-
-            <div className="mt-5 flex items-center justify-between gap-3">
-              <p className="text-xs text-slate-500">
-                {selectedMemberIds.length === 0
-                  ? 'No people selected'
-                  : selectedMemberIds.length === 1
-                    ? 'Direct message'
-                    : `${selectedMemberIds.length} people · Group conversation`}
-              </p>
-              <button
-                type="button"
-                disabled={!selectedMemberIds.length || createConversation.isPending}
-                onClick={() => createConversation.mutate()}
-                className="flex items-center gap-2 rounded-2xl bg-[#68e0cf] px-4 py-2.5 text-sm font-semibold text-[#061013] disabled:opacity-40"
-              >
-                {createConversation.isPending && (
-                  <Loader2 className="size-4 animate-spin" />
-                )}
-                Start conversation
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </main>
   );
 }
@@ -1239,6 +1089,156 @@ function WorkspaceApp({
           </div>
         </aside>
       </div>
+      {newConversationOpen && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              setNewConversationOpen(false);
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="new-conversation-title"
+            className="w-full max-w-lg rounded-[28px] border border-white/10 bg-[#0a171d] p-5 shadow-2xl shadow-black/50"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#68e0cf]">
+                  New conversation
+                </p>
+                <h2 id="new-conversation-title" className="mt-1 text-xl font-semibold">
+                  Start a DM or group
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNewConversationOpen(false)}
+                className="rounded-xl border border-white/8 px-3 py-1.5 text-sm text-slate-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <label className="mt-5 block">
+              <span className="mb-1.5 block text-xs text-slate-400">
+                Find people
+              </span>
+              <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.035] px-3">
+                <Search className="size-4 text-slate-500" />
+                <input
+                  value={userSearch}
+                  onChange={(event) => setUserSearch(event.target.value)}
+                  className="w-full bg-transparent py-3 text-sm outline-none"
+                  placeholder="Search by name or username"
+                  autoFocus
+                />
+              </div>
+            </label>
+
+            <div className="mt-3 max-h-52 space-y-1 overflow-y-auto">
+              {userSearch.trim().length < 2 ? (
+                <p className="px-2 py-5 text-center text-sm text-slate-600">
+                  Type at least 2 characters.
+                </p>
+              ) : userSearchResults.isLoading ? (
+                <div className="grid h-20 place-items-center">
+                  <Loader2 className="size-5 animate-spin text-[#68e0cf]" />
+                </div>
+              ) : (userSearchResults.data?.users ?? []).length ? (
+                (userSearchResults.data?.users ?? []).map((user) => {
+                  const selected = selectedMemberIds.includes(user.id);
+                  return (
+                    <button
+                      key={user.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedMemberIds((current) =>
+                          selected
+                            ? current.filter((id) => id !== user.id)
+                            : [...current, user.id]
+                        )
+                      }
+                      className={
+                        'flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition ' +
+                        (selected
+                          ? 'bg-[#68e0cf]/10 text-white'
+                          : 'hover:bg-white/[0.04]')
+                      }
+                    >
+                      <div className="grid size-9 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-semibold">
+                        {initials(user.display_name) || '?'}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {user.display_name}
+                        </p>
+                        <p className="truncate text-xs text-slate-500">
+                          @{user.username}
+                        </p>
+                      </div>
+                      <span className="ml-auto text-xs text-[#68e0cf]">
+                        {selected ? 'Selected' : 'Add'}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="px-2 py-5 text-center text-sm text-slate-600">
+                  No matching workspace members.
+                </p>
+              )}
+            </div>
+
+            {selectedMemberIds.length > 1 && (
+              <label className="mt-4 block">
+                <span className="mb-1.5 block text-xs text-slate-400">
+                  Group name
+                </span>
+                <input
+                  value={groupName}
+                  onChange={(event) => setGroupName(event.target.value)}
+                  maxLength={100}
+                  className="w-full rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm outline-none focus:border-[#68e0cf]/50"
+                  placeholder="Optional group name"
+                />
+              </label>
+            )}
+
+            {createConversation.error && (
+              <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
+                {createConversation.error instanceof Error
+                  ? createConversation.error.message
+                  : 'Could not create conversation'}
+              </div>
+            )}
+
+            <div className="mt-5 flex items-center justify-between gap-3">
+              <p className="text-xs text-slate-500">
+                {selectedMemberIds.length === 0
+                  ? 'No people selected'
+                  : selectedMemberIds.length === 1
+                    ? 'Direct message'
+                    : `${selectedMemberIds.length} people · Group conversation`}
+              </p>
+              <button
+                type="button"
+                disabled={!selectedMemberIds.length || createConversation.isPending}
+                onClick={() => createConversation.mutate()}
+                className="flex items-center gap-2 rounded-2xl bg-[#68e0cf] px-4 py-2.5 text-sm font-semibold text-[#061013] disabled:opacity-40"
+              >
+                {createConversation.isPending && (
+                  <Loader2 className="size-4 animate-spin" />
+                )}
+                Start conversation
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
