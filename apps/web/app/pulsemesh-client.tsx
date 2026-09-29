@@ -15,6 +15,7 @@ import {
   Hash,
   Headphones,
   Loader2,
+  LockKeyhole,
   LogOut,
   MessageCircle,
   Mic,
@@ -181,6 +182,8 @@ type Message = {
   channelId: string | null;
   conversationId: string | null;
   body: string;
+  encryptionVersion?: 'libsignal-v1' | null;
+  encryptedPayload?: string | null;
   createdAt: string;
   editedAt: string | null;
   reactions?: Reaction[];
@@ -1268,6 +1271,8 @@ function WorkspaceApp({
   const currentConversation = conversations.data?.items.find(
     (item) => item.id === conversationId
   );
+  const isEncryptedConversation =
+    currentConversation?.encryption_mode === 'e2ee_v1';
   const currentTitle = currentChannel?.name ??
     currentConversation?.name ??
     (currentConversation?.kind === 'direct'
@@ -1547,6 +1552,12 @@ function WorkspaceApp({
   }
 
   async function uploadFile(file: File, existingLocalId?: string) {
+    if (isEncryptedConversation) {
+      setMessageActionError(
+        'Attachments are disabled until this web client supports libsignal encryption.'
+      );
+      return;
+    }
     const localId = existingLocalId ?? crypto.randomUUID();
 
     setUploads((current) => {
@@ -1710,6 +1721,12 @@ function WorkspaceApp({
   function submitMessage(event: FormEvent) {
     event.preventDefault();
     const body = composer.trim();
+    if (isEncryptedConversation) {
+      setMessageActionError(
+        'This conversation is end-to-end encrypted. Sending from the web client is disabled until libsignal support is available.'
+      );
+      return;
+    }
     const readyUploads = uploads.filter(
       (item) => item.status === 'ready' && item.fileId
     );
@@ -2228,14 +2245,16 @@ function WorkspaceApp({
                           )}
                           {!message.optimistic && (
                             <div className="ml-auto hidden items-center gap-1 group-hover:flex">
-                              <button
-                                type="button"
-                                onClick={() => setActiveThread(message)}
-                                className="rounded-lg p-1.5 text-slate-500 hover:bg-white/5 hover:text-white"
-                                aria-label="Open thread"
-                              >
-                                <MessageSquareReply className="size-3.5" />
-                              </button>
+                              {!message.encryptedPayload && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveThread(message)}
+                                  className="rounded-lg p-1.5 text-slate-500 hover:bg-white/5 hover:text-white"
+                                  aria-label="Open thread"
+                                >
+                                  <MessageSquareReply className="size-3.5" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => bookmarkMessage.mutate(message.id)}
@@ -2252,17 +2271,19 @@ function WorkspaceApp({
                               >
                                 <Pin className="size-3.5" />
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingMessageId(message.id);
-                                  setEditBody(message.body);
-                                }}
-                                className="rounded-lg p-1.5 text-slate-500 hover:bg-white/5 hover:text-white"
-                                aria-label="Edit message"
-                              >
-                                <Pencil className="size-3.5" />
-                              </button>
+                              {!message.encryptedPayload && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingMessageId(message.id);
+                                    setEditBody(message.body);
+                                  }}
+                                  className="rounded-lg p-1.5 text-slate-500 hover:bg-white/5 hover:text-white"
+                                  aria-label="Edit message"
+                                >
+                                  <Pencil className="size-3.5" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => deleteMessage.mutate(message.id)}
@@ -2308,6 +2329,13 @@ function WorkspaceApp({
                                 Cancel
                               </button>
                             </div>
+                          </div>
+                        ) : message.encryptedPayload ? (
+                          <div className="mt-2 flex items-center gap-2 rounded-xl border border-[#68e0cf]/10 bg-[#68e0cf]/[0.04] px-3 py-2 text-sm text-slate-400">
+                            <LockKeyhole className="size-4 shrink-0 text-[#68e0cf]" />
+                            <span>
+                              Encrypted message · decrypt with an E2EE-capable PulseMesh client
+                            </span>
                           </div>
                         ) : (
                           <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-6 text-slate-300">
@@ -2410,6 +2438,14 @@ function WorkspaceApp({
               <div className="mb-1 min-h-5 px-2 text-xs text-slate-600">
                 {typing ? 'Someone is typing…' : ''}
               </div>
+              {isEncryptedConversation && (
+                <div className="mb-2 flex items-start gap-2 rounded-2xl border border-[#68e0cf]/10 bg-[#68e0cf]/[0.04] px-4 py-3 text-xs leading-5 text-slate-400">
+                  <LockKeyhole className="mt-0.5 size-4 shrink-0 text-[#68e0cf]" />
+                  <span>
+                    This conversation uses end-to-end encryption. Reading and sending ciphertext on web will be enabled after the libsignal client is completed. Plaintext and attachments are blocked here.
+                  </span>
+                </div>
+              )}
               {uploads.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-2">
                   {uploads.map((item) => (
@@ -2464,9 +2500,12 @@ function WorkspaceApp({
               )}
               <form
                 onSubmit={submitMessage}
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={(event) => {
+                  if (!isEncryptedConversation) event.preventDefault();
+                }}
                 onDrop={(event) => {
                   event.preventDefault();
+                  if (isEncryptedConversation) return;
                   Array.from(event.dataTransfer.files).forEach((file) =>
                     void uploadFile(file)
                   );
@@ -2477,6 +2516,7 @@ function WorkspaceApp({
                   ref={fileInputRef}
                   type="file"
                   multiple
+                  disabled={isEncryptedConversation}
                   className="hidden"
                   onChange={(event) => {
                     const files = Array.from(event.target.files ?? []);
@@ -2487,8 +2527,13 @@ function WorkspaceApp({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="mb-0.5 rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white"
-                  aria-label="Attach files"
+                  disabled={isEncryptedConversation}
+                  className="mb-0.5 rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                  aria-label={
+                    isEncryptedConversation
+                      ? 'Attachments unavailable in encrypted conversation'
+                      : 'Attach files'
+                  }
                 >
                   <Paperclip className="size-4" />
                 </button>
@@ -2499,18 +2544,20 @@ function WorkspaceApp({
                   }
                   onPaste={(event) => {
                     const files = Array.from(event.clipboardData.files);
-                    if (files.length > 0) {
+                    if (!isEncryptedConversation && files.length > 0) {
                       files.forEach((file) => void uploadFile(file));
                     }
                   }}
                   rows={1}
-                  disabled={!activeRoom}
+                  disabled={!activeRoom || isEncryptedConversation}
                   placeholder={
-                    currentChannel
-                      ? `Message #${currentChannel.name}…`
-                      : currentConversation
-                        ? `Message ${currentTitle}…`
-                        : 'Select a conversation'
+                    isEncryptedConversation
+                      ? 'Encrypted messaging is not available on web yet'
+                      : currentChannel
+                        ? `Message #${currentChannel.name}…`
+                        : currentConversation
+                          ? `Message ${currentTitle}…`
+                          : 'Select a conversation'
                   }
                   className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none placeholder:text-slate-600"
                   onKeyDown={(event) => {
@@ -2539,7 +2586,8 @@ function WorkspaceApp({
                         item.status === 'uploading' ||
                         item.status === 'processing'
                     ) ||
-                    !activeRoom
+                    !activeRoom ||
+                    isEncryptedConversation
                   }
                   className="mb-0.5 grid size-9 place-items-center rounded-xl bg-[#68e0cf] text-[#061013] disabled:opacity-40"
                   aria-label="Send"
