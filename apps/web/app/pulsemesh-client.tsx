@@ -9,16 +9,21 @@ import {
 } from '@tanstack/react-query';
 import {
   Bell,
+  Bookmark,
   ChevronDown,
   Hash,
   Loader2,
   LogOut,
   MessageCircle,
+  MessageSquareReply,
+  Pencil,
+  Pin,
   Plus,
   Search,
   Send,
   Smile,
   Sparkles,
+  Trash2,
   Users,
   Volume2,
   Wifi,
@@ -82,6 +87,20 @@ type Conversation = {
   members: ConversationMember[];
 };
 
+type Reaction = {
+  emoji: string;
+  count: number;
+  reactedByMe: boolean;
+};
+
+type ThreadReply = {
+  id: string;
+  body: string;
+  created_at: string;
+  display_name: string;
+  username: string;
+};
+
 type Message = {
   id: string;
   clientMessageId: string | null;
@@ -90,6 +109,7 @@ type Message = {
   body: string;
   createdAt: string;
   editedAt: string | null;
+  reactions?: Reaction[];
   sender: {
     id: string;
     username: string;
@@ -362,6 +382,11 @@ function WorkspaceApp({
   const [userSearch, setUserSearch] = useState('');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [groupName, setGroupName] = useState('');
+  const [activeThread, setActiveThread] = useState<Message | null>(null);
+  const [threadComposer, setThreadComposer] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editBody, setEditBody] = useState('');
+  const [messageActionError, setMessageActionError] = useState<string | null>(null);
   const [socketState, setSocketState] = useState<
     'connecting' | 'ready' | 'reconnecting'
   >('connecting');
@@ -463,6 +488,16 @@ function WorkspaceApp({
     queryKey: ['messages', activeMessageKey],
     enabled: Boolean(activeMessagesPath),
     queryFn: () => request<Page<Message>>(activeMessagesPath!, token)
+  });
+
+  const thread = useQuery({
+    queryKey: ['thread', activeThread?.id],
+    enabled: Boolean(activeThread?.id),
+    queryFn: () =>
+      request<{ items: ThreadReply[] }>(
+        `/messages/${activeThread!.id}/thread`,
+        token
+      )
   });
 
   useEffect(() => {
@@ -663,6 +698,131 @@ function WorkspaceApp({
         });
       }
     }
+  });
+
+  const invalidateActiveMessages = () => {
+    if (activeMessageKey) {
+      void queryClient.invalidateQueries({
+        queryKey: ['messages', activeMessageKey]
+      });
+    }
+  };
+
+  const reactionMutation = useMutation({
+    mutationFn: async ({
+      messageId,
+      emoji,
+      reacted
+    }: {
+      messageId: string;
+      emoji: string;
+      reacted: boolean;
+    }) =>
+      request(
+        `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
+        token,
+        { method: reacted ? 'DELETE' : 'PUT' }
+      ),
+    onSuccess: () => {
+      setMessageActionError(null);
+      invalidateActiveMessages();
+    },
+    onError: (error) =>
+      setMessageActionError(
+        error instanceof Error ? error.message : 'Reaction failed'
+      )
+  });
+
+  const editMessage = useMutation({
+    mutationFn: async ({
+      messageId,
+      body
+    }: {
+      messageId: string;
+      body: string;
+    }) =>
+      request(`/messages/${messageId}`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ body })
+      }),
+    onSuccess: () => {
+      setEditingMessageId(null);
+      setEditBody('');
+      setMessageActionError(null);
+      invalidateActiveMessages();
+    },
+    onError: (error) =>
+      setMessageActionError(
+        error instanceof Error ? error.message : 'Edit failed'
+      )
+  });
+
+  const deleteMessage = useMutation({
+    mutationFn: (messageId: string) =>
+      request(`/messages/${messageId}?scope=everyone`, token, {
+        method: 'DELETE'
+      }),
+    onSuccess: () => {
+      setMessageActionError(null);
+      invalidateActiveMessages();
+    },
+    onError: (error) =>
+      setMessageActionError(
+        error instanceof Error ? error.message : 'Delete failed'
+      )
+  });
+
+  const bookmarkMessage = useMutation({
+    mutationFn: (messageId: string) =>
+      request(`/messages/${messageId}/bookmark`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ note: null })
+      }),
+    onSuccess: () => setMessageActionError(null),
+    onError: (error) =>
+      setMessageActionError(
+        error instanceof Error ? error.message : 'Bookmark failed'
+      )
+  });
+
+  const pinMessage = useMutation({
+    mutationFn: (messageId: string) =>
+      request(`/messages/${messageId}/pin`, token, {
+        method: 'POST',
+        body: '{}'
+      }),
+    onSuccess: () => setMessageActionError(null),
+    onError: (error) =>
+      setMessageActionError(
+        error instanceof Error ? error.message : 'Pin failed'
+      )
+  });
+
+  const sendThreadReply = useMutation({
+    mutationFn: async () => {
+      if (!activeThread) throw new Error('No thread selected');
+      const body = threadComposer.trim();
+      if (!body) throw new Error('Reply cannot be empty');
+      return request(`/messages/${activeThread.id}/thread`, token, {
+        method: 'POST',
+        body: JSON.stringify({
+          body,
+          clientMessageId: crypto.randomUUID()
+        })
+      });
+    },
+    onSuccess: async () => {
+      setThreadComposer('');
+      setMessageActionError(null);
+      await queryClient.invalidateQueries({
+        queryKey: ['thread', activeThread?.id]
+      });
+      invalidateActiveMessages();
+    },
+    onError: (error) =>
+      setMessageActionError(
+        error instanceof Error ? error.message : 'Reply failed'
+      )
   });
 
   const logout = useMutation({
@@ -953,6 +1113,11 @@ function WorkspaceApp({
 
           <div className="relative flex-1 overflow-y-auto px-4 py-6 md:px-7">
             <div className="mx-auto max-w-3xl">
+              {messageActionError && (
+                <div className="mb-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
+                  {messageActionError}
+                </div>
+              )}
               {messages.isLoading ? (
                 <div className="grid h-48 place-items-center">
                   <Loader2 className="size-6 animate-spin text-[#68e0cf]" />
@@ -963,7 +1128,7 @@ function WorkspaceApp({
                     <article
                       key={message.id}
                       className={
-                        'flex gap-3 ' +
+                        'group flex gap-3 rounded-2xl px-2 py-1.5 transition hover:bg-white/[0.025] ' +
                         (message.optimistic ? 'opacity-60' : '')
                       }
                     >
@@ -986,10 +1151,143 @@ function WorkspaceApp({
                               edited
                             </span>
                           )}
+                          {!message.optimistic && (
+                            <div className="ml-auto hidden items-center gap-1 group-hover:flex">
+                              <button
+                                type="button"
+                                onClick={() => setActiveThread(message)}
+                                className="rounded-lg p-1.5 text-slate-500 hover:bg-white/5 hover:text-white"
+                                aria-label="Open thread"
+                              >
+                                <MessageSquareReply className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => bookmarkMessage.mutate(message.id)}
+                                className="rounded-lg p-1.5 text-slate-500 hover:bg-white/5 hover:text-white"
+                                aria-label="Bookmark message"
+                              >
+                                <Bookmark className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => pinMessage.mutate(message.id)}
+                                className="rounded-lg p-1.5 text-slate-500 hover:bg-white/5 hover:text-white"
+                                aria-label="Pin message"
+                              >
+                                <Pin className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingMessageId(message.id);
+                                  setEditBody(message.body);
+                                }}
+                                className="rounded-lg p-1.5 text-slate-500 hover:bg-white/5 hover:text-white"
+                                aria-label="Edit message"
+                              >
+                                <Pencil className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteMessage.mutate(message.id)}
+                                className="rounded-lg p-1.5 text-slate-500 hover:bg-rose-400/10 hover:text-rose-300"
+                                aria-label="Delete message"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-6 text-slate-300">
-                          {message.body}
-                        </p>
+
+                        {editingMessageId === message.id ? (
+                          <div className="mt-2">
+                            <textarea
+                              value={editBody}
+                              onChange={(event) => setEditBody(event.target.value)}
+                              rows={2}
+                              className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-sm outline-none focus:border-[#68e0cf]/40"
+                            />
+                            <div className="mt-2 flex gap-2">
+                              <button
+                                type="button"
+                                disabled={!editBody.trim() || editMessage.isPending}
+                                onClick={() =>
+                                  editMessage.mutate({
+                                    messageId: message.id,
+                                    body: editBody.trim()
+                                  })
+                                }
+                                className="rounded-xl bg-[#68e0cf] px-3 py-1.5 text-xs font-semibold text-[#061013] disabled:opacity-40"
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingMessageId(null);
+                                  setEditBody('');
+                                }}
+                                className="rounded-xl border border-white/10 px-3 py-1.5 text-xs text-slate-400"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-6 text-slate-300">
+                            {message.body}
+                          </p>
+                        )}
+
+                        {!message.optimistic && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            {(message.reactions ?? []).map((reaction) => (
+                              <button
+                                key={reaction.emoji}
+                                type="button"
+                                onClick={() =>
+                                  reactionMutation.mutate({
+                                    messageId: message.id,
+                                    emoji: reaction.emoji,
+                                    reacted: reaction.reactedByMe
+                                  })
+                                }
+                                className={
+                                  'rounded-xl border px-2 py-1 text-xs transition ' +
+                                  (reaction.reactedByMe
+                                    ? 'border-[#68e0cf]/30 bg-[#68e0cf]/10 text-[#9af5e8]'
+                                    : 'border-white/8 bg-white/[0.03] text-slate-400')
+                                }
+                              >
+                                {reaction.emoji} {reaction.count}
+                              </button>
+                            ))}
+                            {['👍', '🔥', '😂'].map((emoji) => {
+                              const existing = (message.reactions ?? []).find(
+                                (reaction) => reaction.emoji === emoji
+                              );
+                              if (existing) return null;
+                              return (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  onClick={() =>
+                                    reactionMutation.mutate({
+                                      messageId: message.id,
+                                      emoji,
+                                      reacted: false
+                                    })
+                                  }
+                                  className="rounded-xl border border-dashed border-white/8 px-2 py-1 text-xs text-slate-600 hover:text-slate-300"
+                                  aria-label={`React with ${emoji}`}
+                                >
+                                  {emoji}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     </article>
                   ))}
@@ -1089,6 +1387,114 @@ function WorkspaceApp({
           </div>
         </aside>
       </div>
+      {activeThread && (
+        <div
+          className="fixed inset-0 z-40 flex justify-end bg-black/40 backdrop-blur-[2px]"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setActiveThread(null);
+          }}
+        >
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Message thread"
+            className="flex h-full w-full max-w-md flex-col border-l border-white/10 bg-[#09151a] shadow-2xl shadow-black/40"
+          >
+            <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.16em] text-[#68e0cf]">
+                  Thread
+                </p>
+                <h2 className="mt-1 font-semibold">
+                  {activeThread.sender.displayName}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveThread(null)}
+                className="rounded-xl border border-white/10 px-3 py-1.5 text-sm text-slate-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="border-b border-white/8 p-5">
+              <p className="whitespace-pre-wrap text-sm leading-6 text-slate-300">
+                {activeThread.body}
+              </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              {thread.isLoading ? (
+                <div className="grid h-32 place-items-center">
+                  <Loader2 className="size-5 animate-spin text-[#68e0cf]" />
+                </div>
+              ) : (thread.data?.items ?? []).length ? (
+                <div className="space-y-5">
+                  {(thread.data?.items ?? []).map((reply) => (
+                    <div key={reply.id} className="flex gap-3">
+                      <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-semibold">
+                        {initials(reply.display_name) || '?'}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-sm font-medium">
+                            {reply.display_name}
+                          </span>
+                          <span className="text-[10px] text-slate-600">
+                            {new Date(reply.created_at).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </span>
+                        </div>
+                        <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-300">
+                          {reply.body}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="py-10 text-center text-sm text-slate-600">
+                  No replies yet.
+                </p>
+              )}
+            </div>
+
+            <form
+              className="border-t border-white/8 p-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                sendThreadReply.mutate();
+              }}
+            >
+              <div className="flex items-end gap-2 rounded-2xl border border-white/10 bg-white/[0.035] p-2">
+                <textarea
+                  value={threadComposer}
+                  onChange={(event) => setThreadComposer(event.target.value)}
+                  rows={2}
+                  placeholder="Reply in thread…"
+                  className="max-h-32 min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
+                />
+                <button
+                  disabled={!threadComposer.trim() || sendThreadReply.isPending}
+                  className="grid size-9 place-items-center rounded-xl bg-[#68e0cf] text-[#061013] disabled:opacity-40"
+                  aria-label="Send thread reply"
+                >
+                  {sendThreadReply.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                </button>
+              </div>
+            </form>
+          </aside>
+        </div>
+      )}
+
       {newConversationOpen && (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
