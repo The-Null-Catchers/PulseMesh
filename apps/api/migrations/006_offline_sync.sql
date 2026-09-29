@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS message_sync_events (
   occurred_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE message_sync_events
+  ADD COLUMN IF NOT EXISTS target_user_id uuid REFERENCES users(id) ON DELETE CASCADE;
+
 CREATE INDEX IF NOT EXISTS message_sync_events_room_cursor_idx
   ON message_sync_events(room_kind,room_id,id);
 
