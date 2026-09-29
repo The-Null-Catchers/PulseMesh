@@ -442,6 +442,21 @@ function WorkspaceApp({
   });
 
   useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+      if (event.key === 'Escape') {
+        setSearchOpen(false);
+        setNotificationsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  useEffect(() => {
     const first = workspaces.data?.items[0];
     if (!workspaceId && first) setWorkspaceId(first.id);
   }, [workspaceId, workspaces.data]);
@@ -542,7 +557,6 @@ function WorkspaceApp({
 
   const notifications = useQuery({
     queryKey: ['notifications'],
-    enabled: notificationsOpen,
     queryFn: () =>
       request<{ items: NotificationItem[] }>('/notifications', token)
   });
@@ -934,6 +948,9 @@ function WorkspaceApp({
     () => [...(messages.data?.items ?? [])].reverse(),
     [messages.data]
   );
+  const unreadNotificationCount = (notifications.data?.items ?? []).filter(
+    (item) => !item.read_at
+  ).length;
 
   function submitMessage(event: FormEvent) {
     event.preventDefault();
@@ -1199,6 +1216,11 @@ function WorkspaceApp({
                 aria-label="Notifications"
               >
                 <Bell className="size-4" />
+                {unreadNotificationCount > 0 && (
+                  <span className="absolute right-0.5 top-0.5 grid min-w-4 place-items-center rounded-full bg-[#68e0cf] px-1 text-[9px] font-bold leading-4 text-[#061013]">
+                    {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                  </span>
+                )}
               </button>
             </div>
           </header>
