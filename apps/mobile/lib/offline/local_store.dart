@@ -231,7 +231,7 @@ class LocalMessageStore {
       return PendingOutgoingMessage(
         clientMessageId: row['client_message_id']! as String,
         room: RoomRef(
-          kind: RoomKindWire.parse(row['room_kind']! as String),
+          kind: parseRoomKind(row['room_kind']! as String),
           id: row['room_id']! as String,
         ),
         body: row['body']! as String,
