@@ -586,10 +586,7 @@ function WorkspaceApp({
               {(conversations.data?.items ?? [])
                 .slice(0, 12)
                 .map((conversation) => {
-                  const label = conversationLabel(
-                    conversation,
-                    currentUserId,
-                  );
+                  const label = conversationLabel(conversation, currentUserId);
                   return (
                     <button
                       key={conversation.id}
