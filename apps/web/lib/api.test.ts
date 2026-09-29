@@ -62,12 +62,14 @@ describe("request", () => {
   });
 
   it("does not recurse through the refresh endpoint", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({ error: { message: "Refresh session expired" } }),
-        { status: 401 },
-      ),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { message: "Refresh session expired" } }),
+          { status: 401 },
+        ),
+      );
     const refresher = vi.fn().mockResolvedValue("fresh-token");
 
     vi.stubGlobal("fetch", fetchMock);
