@@ -15,16 +15,20 @@ import {
   Loader2,
   LogOut,
   MessageCircle,
+  FileText,
   MessageSquareReply,
+  Paperclip,
   Pencil,
   Pin,
   Plus,
+  RotateCcw,
   Search,
   Send,
   Smile,
   Sparkles,
   Trash2,
   Users,
+  X,
   Volume2,
   Wifi,
   WifiOff
@@ -87,6 +91,27 @@ type Conversation = {
   members: ConversationMember[];
 };
 
+type Attachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  width?: number | null;
+  height?: number | null;
+  durationMs?: number | null;
+  hasThumbnail?: boolean;
+};
+
+type UploadItem = {
+  localId: string;
+  fileId: string | null;
+  file: File;
+  name: string;
+  status: 'uploading' | 'processing' | 'ready' | 'failed' | 'cancelled';
+  progress: number;
+  error: string | null;
+};
+
 type Reaction = {
   emoji: string;
   count: number;
@@ -110,6 +135,7 @@ type Message = {
   createdAt: string;
   editedAt: string | null;
   reactions?: Reaction[];
+  attachments?: Attachment[];
   sender: {
     id: string;
     username: string;
@@ -427,11 +453,14 @@ function WorkspaceApp({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [socketState, setSocketState] = useState<
     'connecting' | 'ready' | 'reconnecting'
   >('connecting');
   const [typing, setTyping] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadXhrsRef = useRef<Map<string, XMLHttpRequest>>(new Map());
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
 
@@ -709,10 +738,12 @@ function WorkspaceApp({
   const sendMessage = useMutation({
     mutationFn: async ({
       body,
-      clientMessageId
+      clientMessageId,
+      attachmentIds
     }: {
       body: string;
       clientMessageId: string;
+      attachmentIds: string[];
     }) => {
       if (!activeMessageKey) throw new Error('No conversation selected');
       const path = channelId
@@ -726,12 +757,12 @@ function WorkspaceApp({
           body: JSON.stringify({
             body,
             clientMessageId,
-            attachmentIds: []
+            attachmentIds
           })
         }
       );
     },
-    onMutate: async ({ body, clientMessageId }) => {
+    onMutate: async ({ body, clientMessageId, attachmentIds }) => {
       if (!activeMessageKey) return;
       const key = ['messages', activeMessageKey] as const;
       await queryClient.cancelQueries({ queryKey: key });
@@ -744,6 +775,14 @@ function WorkspaceApp({
         body,
         createdAt: new Date().toISOString(),
         editedAt: null,
+        attachments: uploads
+          .filter((item) => item.fileId && attachmentIds.includes(item.fileId))
+          .map((item) => ({
+            id: item.fileId!,
+            name: item.name,
+            mimeType: item.file.type || 'application/octet-stream',
+            sizeBytes: item.file.size
+          })),
         optimistic: true,
         sender: {
           id: 'self',
@@ -762,6 +801,11 @@ function WorkspaceApp({
       if (context?.key) {
         queryClient.setQueryData(context.key, context.previous);
       }
+    },
+    onSuccess: () => {
+      setUploads((current) =>
+        current.filter((item) => item.status !== 'ready')
+      );
     },
     onSettled: () => {
       if (activeMessageKey) {
@@ -952,14 +996,223 @@ function WorkspaceApp({
     (item) => !item.read_at
   ).length;
 
+
+  async function waitForFileReady(
+    fileId: string,
+    localId: string
+  ): Promise<void> {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const result = await request<{
+        status: string;
+        processingError?: string | null;
+      }>(`/files/${fileId}`, token);
+
+      if (result.status === 'ready') {
+        setUploads((current) =>
+          current.map((item) =>
+            item.localId === localId
+              ? { ...item, status: 'ready', progress: 100, error: null }
+              : item
+          )
+        );
+        return;
+      }
+
+      if (result.status === 'rejected') {
+        throw new Error(
+          result.processingError || 'File processing was rejected'
+        );
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+
+    throw new Error('File processing timed out');
+  }
+
+  async function uploadFile(file: File, existingLocalId?: string) {
+    const localId = existingLocalId ?? crypto.randomUUID();
+
+    setUploads((current) => {
+      const existing = current.find((item) => item.localId === localId);
+      if (existing) {
+        return current.map((item) =>
+          item.localId === localId
+            ? {
+                ...item,
+                fileId: null,
+                status: 'uploading',
+                progress: 0,
+                error: null
+              }
+            : item
+        );
+      }
+
+      return [
+        ...current,
+        {
+          localId,
+          fileId: null,
+          file,
+          name: file.name,
+          status: 'uploading',
+          progress: 0,
+          error: null
+        }
+      ];
+    });
+
+    try {
+      const presign = await request<{
+        fileId: string;
+        uploadUrl: string;
+        headers: Record<string, string>;
+      }>('/files/presign', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          sizeBytes: file.size
+        })
+      });
+
+      setUploads((current) =>
+        current.map((item) =>
+          item.localId === localId
+            ? { ...item, fileId: presign.fileId }
+            : item
+        )
+      );
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        uploadXhrsRef.current.set(localId, xhr);
+        xhr.open('PUT', presign.uploadUrl);
+
+        Object.entries(presign.headers).forEach(([key, value]) => {
+          xhr.setRequestHeader(key, value);
+        });
+
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return;
+          const progress = Math.round((event.loaded / event.total) * 100);
+          setUploads((current) =>
+            current.map((item) =>
+              item.localId === localId
+                ? { ...item, progress }
+                : item
+            )
+          );
+        };
+
+        xhr.onload = () => {
+          uploadXhrsRef.current.delete(localId);
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error('Object storage upload failed'));
+        };
+        xhr.onerror = () => {
+          uploadXhrsRef.current.delete(localId);
+          reject(new Error('Object storage upload failed'));
+        };
+        xhr.onabort = () => {
+          uploadXhrsRef.current.delete(localId);
+          reject(new Error('Upload cancelled'));
+        };
+        xhr.send(file);
+      });
+
+      setUploads((current) =>
+        current.map((item) =>
+          item.localId === localId
+            ? { ...item, status: 'processing', progress: 100 }
+            : item
+        )
+      );
+
+      await request(`/files/${presign.fileId}/complete`, token, {
+        method: 'POST',
+        body: '{}'
+      });
+
+      await waitForFileReady(presign.fileId, localId);
+    } catch (error) {
+      setUploads((current) =>
+        current.map((item) =>
+          item.localId === localId
+            ? {
+                ...item,
+                status:
+                  error instanceof Error &&
+                  error.message === 'Upload cancelled'
+                    ? 'cancelled'
+                    : 'failed',
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : 'Upload failed'
+              }
+            : item
+        )
+      );
+    }
+  }
+
+  async function cancelUpload(item: UploadItem) {
+    uploadXhrsRef.current.get(item.localId)?.abort();
+
+    if (item.fileId) {
+      try {
+        await request(`/files/${item.fileId}`, token, {
+          method: 'DELETE'
+        });
+      } catch {
+        // A file that is already processing/attached may no longer be cancellable.
+      }
+    }
+
+    setUploads((current) =>
+      current.filter((candidate) => candidate.localId !== item.localId)
+    );
+  }
+
+  async function downloadAttachment(attachment: Attachment) {
+    try {
+      const result = await request<{ url: string }>(
+        `/files/${attachment.id}/download`,
+        token,
+        { method: 'POST', body: '{}' }
+      );
+      window.open(result.url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      setMessageActionError(
+        error instanceof Error ? error.message : 'Download failed'
+      );
+    }
+  }
+
   function submitMessage(event: FormEvent) {
     event.preventDefault();
     const body = composer.trim();
-    if (!body || !activeRoom || sendMessage.isPending) return;
+    const readyUploads = uploads.filter(
+      (item) => item.status === 'ready' && item.fileId
+    );
+    const hasPendingUploads = uploads.some(
+      (item) => item.status === 'uploading' || item.status === 'processing'
+    );
+    if (
+      (!body && readyUploads.length === 0) ||
+      hasPendingUploads ||
+      !activeRoom ||
+      sendMessage.isPending
+    ) {
+      return;
+    }
     setComposer('');
     sendMessage.mutate({
       body,
-      clientMessageId: crypto.randomUUID()
+      clientMessageId: crypto.randomUUID(),
+      attachmentIds: readyUploads.map((item) => item.fileId!)
     });
     socketRef.current?.send(
       JSON.stringify({
@@ -1354,6 +1607,29 @@ function WorkspaceApp({
                           </p>
                         )}
 
+                        {(message.attachments ?? []).length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {(message.attachments ?? []).map((attachment) => (
+                              <button
+                                key={attachment.id}
+                                type="button"
+                                onClick={() => void downloadAttachment(attachment)}
+                                className="flex max-w-xs items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2 text-left hover:bg-white/[0.06]"
+                              >
+                                <FileText className="size-4 shrink-0 text-[#68e0cf]" />
+                                <span className="min-w-0">
+                                  <span className="block truncate text-xs font-medium text-slate-300">
+                                    {attachment.name}
+                                  </span>
+                                  <span className="block text-[10px] text-slate-600">
+                                    {(attachment.sizeBytes / 1024).toFixed(1)} KB
+                                  </span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
                         {!message.optimistic && (
                           <div className="mt-2 flex flex-wrap items-center gap-1.5">
                             {(message.reactions ?? []).map((reaction) => (
@@ -1426,21 +1702,99 @@ function WorkspaceApp({
               <div className="mb-1 min-h-5 px-2 text-xs text-slate-600">
                 {typing ? 'Someone is typing…' : ''}
               </div>
+              {uploads.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {uploads.map((item) => (
+                    <div
+                      key={item.localId}
+                      className="flex min-w-[190px] max-w-xs items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2"
+                    >
+                      <FileText className="size-4 shrink-0 text-[#68e0cf]" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-medium text-slate-300">
+                          {item.name}
+                        </p>
+                        <p className="text-[10px] text-slate-600">
+                          {item.status === 'uploading'
+                            ? `${item.progress}% uploaded`
+                            : item.status === 'processing'
+                              ? 'Processing…'
+                              : item.status === 'ready'
+                                ? 'Ready to send'
+                                : item.error ?? item.status}
+                        </p>
+                        {item.status === 'uploading' && (
+                          <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/5">
+                            <div
+                              className="h-full bg-[#68e0cf]"
+                              style={{ width: `${item.progress}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                      {item.status === 'failed' ? (
+                        <button
+                          type="button"
+                          onClick={() => void uploadFile(item.file, item.localId)}
+                          className="rounded-lg p-1.5 text-slate-500 hover:text-white"
+                          aria-label="Retry upload"
+                        >
+                          <RotateCcw className="size-3.5" />
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void cancelUpload(item)}
+                        className="rounded-lg p-1.5 text-slate-500 hover:text-rose-300"
+                        aria-label="Cancel upload"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <form
                 onSubmit={submitMessage}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  Array.from(event.dataTransfer.files).forEach((file) =>
+                    void uploadFile(file)
+                  );
+                }}
                 className="flex items-end gap-2 rounded-2xl border border-white/10 bg-white/[0.045] p-2 shadow-lg shadow-black/10"
               >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    const files = Array.from(event.target.files ?? []);
+                    files.forEach((file) => void uploadFile(file));
+                    event.currentTarget.value = '';
+                  }}
+                />
                 <button
                   type="button"
+                  onClick={() => fileInputRef.current?.click()}
                   className="mb-0.5 rounded-xl p-2 text-slate-500 hover:bg-white/5 hover:text-white"
+                  aria-label="Attach files"
                 >
-                  <Plus className="size-4" />
+                  <Paperclip className="size-4" />
                 </button>
                 <textarea
                   value={composer}
                   onChange={(event) =>
                     onComposerChange(event.target.value)
                   }
+                  onPaste={(event) => {
+                    const files = Array.from(event.clipboardData.files);
+                    if (files.length > 0) {
+                      files.forEach((file) => void uploadFile(file));
+                    }
+                  }}
                   rows={1}
                   disabled={!activeRoom}
                   placeholder={
@@ -1469,7 +1823,16 @@ function WorkspaceApp({
                   <Smile className="size-4" />
                 </button>
                 <button
-                  disabled={!composer.trim() || !activeRoom}
+                  disabled={
+                    (!composer.trim() &&
+                      !uploads.some((item) => item.status === 'ready')) ||
+                    uploads.some(
+                      (item) =>
+                        item.status === 'uploading' ||
+                        item.status === 'processing'
+                    ) ||
+                    !activeRoom
+                  }
                   className="mb-0.5 grid size-9 place-items-center rounded-xl bg-[#68e0cf] text-[#061013] disabled:opacity-40"
                   aria-label="Send"
                 >
