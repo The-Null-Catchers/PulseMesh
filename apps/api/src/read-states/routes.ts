@@ -74,12 +74,56 @@ export async function readStateRoutes(app: FastifyInstance): Promise<void> {
 
     if (body.channelId) {
       await pool.query(
-        "INSERT INTO read_states (user_id,channel_id,last_read_message_id,last_read_at) VALUES ($1,$2,$3,now()) ON CONFLICT (user_id,channel_id) WHERE channel_id IS NOT NULL DO UPDATE SET last_read_message_id=EXCLUDED.last_read_message_id,last_read_at=now()",
+        `INSERT INTO read_states (
+           user_id,
+           channel_id,
+           last_read_message_id,
+           last_read_at
+         )
+         VALUES ($1,$2,$3,now())
+         ON CONFLICT (user_id,channel_id)
+           WHERE channel_id IS NOT NULL
+         DO UPDATE SET
+           last_read_message_id=EXCLUDED.last_read_message_id,
+           last_read_at=now()
+         WHERE
+           read_states.last_read_message_id IS NULL
+           OR EXISTS (
+             SELECT 1
+             FROM messages incoming
+             JOIN messages current_message
+               ON current_message.id=read_states.last_read_message_id
+             WHERE incoming.id=EXCLUDED.last_read_message_id
+               AND (incoming.created_at,incoming.id)
+                   >= (current_message.created_at,current_message.id)
+           )`,
         [userId, body.channelId, body.lastReadMessageId],
       );
     } else {
       await pool.query(
-        "INSERT INTO read_states (user_id,conversation_id,last_read_message_id,last_read_at) VALUES ($1,$2,$3,now()) ON CONFLICT (user_id,conversation_id) WHERE conversation_id IS NOT NULL DO UPDATE SET last_read_message_id=EXCLUDED.last_read_message_id,last_read_at=now()",
+        `INSERT INTO read_states (
+           user_id,
+           conversation_id,
+           last_read_message_id,
+           last_read_at
+         )
+         VALUES ($1,$2,$3,now())
+         ON CONFLICT (user_id,conversation_id)
+           WHERE conversation_id IS NOT NULL
+         DO UPDATE SET
+           last_read_message_id=EXCLUDED.last_read_message_id,
+           last_read_at=now()
+         WHERE
+           read_states.last_read_message_id IS NULL
+           OR EXISTS (
+             SELECT 1
+             FROM messages incoming
+             JOIN messages current_message
+               ON current_message.id=read_states.last_read_message_id
+             WHERE incoming.id=EXCLUDED.last_read_message_id
+               AND (incoming.created_at,incoming.id)
+                   >= (current_message.created_at,current_message.id)
+           )`,
         [userId, body.conversationId, body.lastReadMessageId],
       );
     }
