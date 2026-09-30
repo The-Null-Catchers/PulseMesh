@@ -597,9 +597,7 @@ function WorkspaceApp({
                   <span className="truncate">{channel.name}</span>
                   {channel.id !== channelId && channel.unread_count > 0 && (
                     <span className="ml-auto min-w-5 rounded-full bg-[#68e0cf]/12 px-1.5 text-center text-[10px] font-semibold leading-5 text-[#9af5e8]">
-                      {channel.unread_count > 99
-                        ? "99+"
-                        : channel.unread_count}
+                      {channel.unread_count > 99 ? "99+" : channel.unread_count}
                     </span>
                   )}
                 </button>
