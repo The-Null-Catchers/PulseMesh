@@ -14,6 +14,7 @@ export type Channel = {
   kind: "text" | "voice";
   visibility: string;
   position: number;
+  unread_count: number;
 };
 
 export type CallParticipant = {
@@ -75,6 +76,7 @@ export type Conversation = {
   name: string | null;
   avatar_url: string | null;
   encryption_mode: "none" | "e2ee_v1";
+  unread_count: number;
   members: ConversationMember[];
 };
 
