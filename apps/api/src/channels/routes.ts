@@ -27,14 +27,42 @@ export async function channelRoutes(app: FastifyInstance): Promise<void> {
         );
       }
       const result = await pool.query(
-        `SELECT c.id,c.name,c.topic,c.kind,c.visibility,c.position,c.archived_at
-       FROM channels c
-       LEFT JOIN channel_members cm
-         ON cm.channel_id=c.id AND cm.user_id=$2
-       WHERE c.workspace_id=$1
-         AND c.archived_at IS NULL
-         AND (c.visibility<>'private' OR cm.user_id IS NOT NULL)
-       ORDER BY c.position,c.name`,
+        `SELECT
+           c.id,
+           c.name,
+           c.topic,
+           c.kind,
+           c.visibility,
+           c.position,
+           c.archived_at,
+           COALESCE(unread.unread_count,0)::int AS unread_count
+         FROM channels c
+         LEFT JOIN channel_members cm
+           ON cm.channel_id=c.id AND cm.user_id=$2
+         LEFT JOIN read_states rs
+           ON rs.user_id=$2 AND rs.channel_id=c.id
+         LEFT JOIN messages read_message
+           ON read_message.id=rs.last_read_message_id
+         LEFT JOIN LATERAL (
+           SELECT count(*)::int AS unread_count
+           FROM messages m
+           WHERE m.channel_id=c.id
+             AND m.deleted_at IS NULL
+             AND m.sender_user_id<>$2
+             AND NOT EXISTS (
+               SELECT 1
+               FROM message_hidden_users hidden
+               WHERE hidden.message_id=m.id AND hidden.user_id=$2
+             )
+             AND (
+               read_message.id IS NULL
+               OR (m.created_at,m.id) > (read_message.created_at,read_message.id)
+             )
+         ) unread ON TRUE
+         WHERE c.workspace_id=$1
+           AND c.archived_at IS NULL
+           AND (c.visibility<>'private' OR cm.user_id IS NOT NULL)
+         ORDER BY c.position,c.name`,
         [params.workspaceId, userId],
       );
       return { items: result.rows };
