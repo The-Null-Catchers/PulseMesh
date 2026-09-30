@@ -8,6 +8,7 @@ import '../../offline/local_store.dart';
 import '../../offline/models.dart';
 import '../../offline/sync_engine.dart';
 import '../../offline/sync_transport.dart';
+import '../messages/message_actions_transport.dart';
 import '../messages/room_message.dart';
 import '../workspaces/workspace_models.dart';
 import '../workspaces/workspace_transport.dart';
@@ -23,11 +24,13 @@ class MobileDataController extends ChangeNotifier {
     required WorkspaceTransport workspaceTransport,
     required InboxTransport inboxTransport,
     required MessageSyncTransport messageSyncTransport,
+    required MessageActionsTransport messageActionsTransport,
   })  : _authSession = authSession,
         _config = config,
         _store = localStore,
         _workspaceTransport = workspaceTransport,
         _inboxTransport = inboxTransport,
+        _messageActionsTransport = messageActionsTransport,
         _syncEngine = OfflineSyncEngine(
           store: localStore,
           transport: messageSyncTransport,
@@ -55,6 +58,10 @@ class MobileDataController extends ChangeNotifier {
         baseUrl: config.apiBaseUrl,
         accessToken: authSession.accessToken,
       ),
+      messageActionsTransport: DioMessageActionsTransport(
+        baseUrl: config.apiBaseUrl,
+        accessToken: authSession.accessToken,
+      ),
     );
   }
 
@@ -63,8 +70,10 @@ class MobileDataController extends ChangeNotifier {
   final LocalMessageStore _store;
   final WorkspaceTransport _workspaceTransport;
   final InboxTransport _inboxTransport;
+  final MessageActionsTransport _messageActionsTransport;
   final OfflineSyncEngine _syncEngine;
   final Set<RoomRef> _openRooms = <RoomRef>{};
+  final Map<RoomRef, Set<String>> _typingUsers = <RoomRef, Set<String>>{};
 
   List<WorkspaceSummary> _workspaces = const [];
   InboxSnapshot _inbox = const InboxSnapshot(
@@ -87,6 +96,9 @@ class MobileDataController extends ChangeNotifier {
   Object? get error => _error;
   MobileRealtimeState get realtimeState => _realtimeState;
   int get totalUnread => _inbox.totalUnread;
+
+  Set<String> typingUsersForRoom(RoomRef room) =>
+      Set<String>.unmodifiable(_typingUsers[room] ?? const <String>{});
 
   WorkspaceSummary? get selectedWorkspace {
     final selectedId = _selectedWorkspaceId;
@@ -188,6 +200,7 @@ class MobileDataController extends ChangeNotifier {
 
   void closeRoom(RoomRef room) {
     _openRooms.remove(room);
+    _typingUsers.remove(room);
     _syncEngine.unwatchRoom(room);
     _realtime?.unwatchRoom(room);
   }
@@ -207,7 +220,11 @@ class MobileDataController extends ChangeNotifier {
     }
   }
 
-  Future<String> sendRoomMessage(RoomRef room, String body) async {
+  Future<String> sendRoomMessage(
+    RoomRef room,
+    String body, {
+    String? replyToMessageId,
+  }) async {
     final trimmed = body.trim();
     if (trimmed.isEmpty) {
       throw ArgumentError.value(body, 'body', 'Message cannot be empty');
@@ -216,6 +233,7 @@ class MobileDataController extends ChangeNotifier {
     final clientMessageId = await _syncEngine.enqueueMessage(
       room: room,
       body: trimmed,
+      replyToMessageId: replyToMessageId,
     );
     _notify();
     return clientMessageId;
@@ -224,6 +242,61 @@ class MobileDataController extends ChangeNotifier {
   Future<void> retryRoomMessage(String clientMessageId) async {
     await _syncEngine.retryFailed(clientMessageId);
     _notify();
+  }
+
+  Future<void> editRoomMessage({
+    required RoomRef room,
+    required String messageId,
+    required String body,
+  }) async {
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(body, 'body', 'Message cannot be empty');
+    }
+
+    await _messageActionsTransport.editMessage(
+      messageId: messageId,
+      body: trimmed,
+    );
+    await _syncEngine.reconcileRoom(room);
+    _notify();
+  }
+
+  Future<void> deleteRoomMessage({
+    required RoomRef room,
+    required String messageId,
+    String scope = 'everyone',
+  }) async {
+    await _messageActionsTransport.deleteMessage(
+      messageId: messageId,
+      scope: scope,
+    );
+
+    if (scope == 'self') {
+      await _syncEngine.refreshRecentRoom(room);
+    } else {
+      await _syncEngine.reconcileRoom(room);
+    }
+    _notify();
+  }
+
+  Future<void> setRoomReaction({
+    required RoomRef room,
+    required String messageId,
+    required String emoji,
+    required bool active,
+  }) async {
+    await _messageActionsTransport.setReaction(
+      messageId: messageId,
+      emoji: emoji,
+      active: active,
+    );
+    await _syncEngine.refreshRecentRoom(room);
+    _notify();
+  }
+
+  void setTyping(RoomRef room, {required bool typing}) {
+    _realtime?.sendTyping(room, typing: typing);
   }
 
   Future<void> selectWorkspace(String workspaceId) async {
@@ -320,6 +393,11 @@ class MobileDataController extends ChangeNotifier {
       localStore: _store,
       onInboxDirty: _refreshInboxBestEffort,
       onRoomDirty: _reconcileRoomBestEffort,
+      onTypingChanged: (room, userIds) {
+        if (_disposed) return;
+        _typingUsers[room] = userIds;
+        _notify();
+      },
       onStateChanged: (state) {
         if (_disposed) return;
         _realtimeState = state;
@@ -393,9 +471,17 @@ class MobileDataController extends ChangeNotifier {
     }
   }
 
-  Future<void> _reconcileRoomBestEffort(RoomRef room) async {
+  Future<void> _reconcileRoomBestEffort(
+    RoomRef room,
+    String eventType,
+  ) async {
     try {
-      await _syncEngine.reconcileRoom(room);
+      if (eventType == 'reaction.created' ||
+          eventType == 'reaction.deleted') {
+        await _syncEngine.refreshRecentRoom(room);
+      } else {
+        await _syncEngine.reconcileRoom(room);
+      }
       _offline = false;
       _error = null;
       _notify();
