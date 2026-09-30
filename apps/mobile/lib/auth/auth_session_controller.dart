@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'auth_models.dart';
 import 'auth_session_store.dart';
 import 'auth_transport.dart';
@@ -23,6 +25,24 @@ class AuthSessionController {
 
   AuthSessionState get state => _state;
   bool get isAuthenticated => _accessToken != null;
+
+  String? get currentUserId {
+    final token = _accessToken;
+    if (token == null) return null;
+
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+      final payload = utf8.decode(
+        base64Url.decode(base64Url.normalize(parts[1])),
+      );
+      final json = jsonDecode(payload);
+      if (json is! Map) return null;
+      return json['sub'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<String?> accessToken() async => _accessToken;
 
