@@ -96,6 +96,7 @@ class MobileDataController extends ChangeNotifier {
   Object? get error => _error;
   MobileRealtimeState get realtimeState => _realtimeState;
   int get totalUnread => _inbox.totalUnread;
+  String? get currentUserId => _authSession.currentUserId;
 
   Set<String> typingUsersForRoom(RoomRef room) =>
       Set<String>.unmodifiable(_typingUsers[room] ?? const <String>{});
