@@ -5,6 +5,8 @@ class ChannelSummary {
     required this.unreadCount,
     required this.visibility,
     required this.position,
+    this.topic,
+    this.kind = 'text',
   });
 
   final String id;
@@ -12,6 +14,8 @@ class ChannelSummary {
   final int unreadCount;
   final String visibility;
   final int position;
+  final String? topic;
+  final String kind;
 
   bool get hasUnread => unreadCount > 0;
 
@@ -22,6 +26,8 @@ class ChannelSummary {
       unreadCount: _intValue(json['unread_count']),
       visibility: json['visibility'] as String? ?? 'public',
       position: _intValue(json['position']),
+      topic: json['topic'] as String?,
+      kind: json['kind'] as String? ?? 'text',
     );
   }
 }
