@@ -74,14 +74,15 @@ async function assertConversationAdmin(
 async function publishCreatedMessage(
   log: FastifyBaseLogger,
   input: {
-  messageId: string;
-  senderUserId: string;
-  body: string;
-  clientMessageId: string | null;
-  createdAt: Date;
-  channelId: string | null;
-  conversationId: string | null;
-}): Promise<void> {
+    messageId: string;
+    senderUserId: string;
+    body: string;
+    clientMessageId: string | null;
+    createdAt: Date;
+    channelId: string | null;
+    conversationId: string | null;
+  },
+): Promise<void> {
   const room = input.channelId
     ? "channel:" + input.channelId
     : "conversation:" + input.conversationId;
