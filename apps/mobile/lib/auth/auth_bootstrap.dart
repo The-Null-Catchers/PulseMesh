@@ -7,7 +7,7 @@ import 'auth_session_controller.dart';
 import 'auth_session_store.dart';
 import 'auth_transport.dart';
 
-typedef AuthenticatedAppBuilder = Widget Function();
+typedef AuthenticatedAppBuilder = Widget Function(\n  AuthSessionController controller,\n);
 
 class MobileAuthBootstrap extends StatefulWidget {
   const MobileAuthBootstrap({
@@ -103,7 +103,7 @@ class _MobileAuthBootstrapState extends State<MobileAuthBootstrap> {
   @override
   Widget build(BuildContext context) {
     if (_authenticated) {
-      return widget.authenticatedAppBuilder();
+      return widget.authenticatedAppBuilder(_controller);
     }
 
     return MaterialApp(
