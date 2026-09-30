@@ -75,6 +75,7 @@ describe("realtime contracts", () => {
       sequence: 10,
       payload: {
         messageId: "f113742e-2534-443e-8353-34382100dfdf",
+        workspaceId: "11111111-1111-4111-8111-111111111111",
         channelId: "54285544-0c19-4c53-838d-27a1155c461b",
         conversationId: null,
         senderId: "5d9ad22f-b7dc-4b4c-9a31-cfe8f17fc5a4",
