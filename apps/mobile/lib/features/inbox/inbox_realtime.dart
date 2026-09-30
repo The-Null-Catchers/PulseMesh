@@ -273,7 +273,7 @@ class MobileInboxRealtimeBridge {
         final roomCallback = onRoomDirty;
         if (roomCallback != null) {
           for (final room in _rooms) {
-            unawaited(roomCallback(room));
+            unawaited(roomCallback(room, 'session.truncated'));
           }
         }
       }
