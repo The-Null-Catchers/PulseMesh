@@ -163,6 +163,30 @@ class LocalMessageStore {
         .toList(growable: false);
   }
 
+  Future<int> realtimeSequence() async {
+    final entities = await readEntities('realtime_state');
+    for (final entity in entities) {
+      if (entity['id'] != 'sequence') continue;
+      final value = entity['value'];
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      if (value is String) return int.tryParse(value) ?? 0;
+    }
+    return 0;
+  }
+
+  Future<void> writeRealtimeSequence(int sequence) {
+    return cacheEntities(
+      'realtime_state',
+      [
+        {
+          'id': 'sequence',
+          'value': sequence,
+        },
+      ],
+    );
+  }
+
   Future<void> enqueueMessage({
     required String clientMessageId,
     required RoomRef room,
