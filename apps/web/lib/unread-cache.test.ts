@@ -24,7 +24,6 @@ describe("clearUnreadCount", () => {
   });
 });
 
-
 describe("unreadRefreshTarget", () => {
   it("refreshes inactive channels only for the active workspace", () => {
     expect(
