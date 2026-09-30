@@ -17,3 +17,33 @@ export function clearUnreadCount<T extends UnreadItem>(
     ),
   };
 }
+
+
+export type InboxDestination = {
+  workspaceId: string | null;
+  channelId: string | null;
+  conversationId: string | null;
+};
+
+export function unreadRefreshTarget(
+  destination: InboxDestination,
+  activeMessageKey: string | null,
+  workspaceId: string | null,
+): "channels" | "conversations" | null {
+  if (
+    destination.channelId &&
+    destination.channelId !== activeMessageKey &&
+    destination.workspaceId === workspaceId
+  ) {
+    return "channels";
+  }
+
+  if (
+    destination.conversationId &&
+    destination.conversationId !== activeMessageKey
+  ) {
+    return "conversations";
+  }
+
+  return null;
+}
