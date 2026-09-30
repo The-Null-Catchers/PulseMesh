@@ -16,6 +16,7 @@ function row(overrides: Partial<MessageSyncRow> = {}): MessageSyncRow {
     encryption_version: null,
     encrypted_payload: null,
     reply_to_message_id: null,
+    thread_root_message_id: null,
     created_at: new Date("2026-09-29T10:00:00.000Z"),
     edited_at: null,
     deleted_at: null,
@@ -49,6 +50,15 @@ describe("mapMessageSyncRow", () => {
       encryptionVersion: "libsignal-v1",
       encryptedPayload: "opaque-ciphertext",
     });
+  });
+
+  it("keeps thread replies out of the main room sync", () => {
+    expect(
+      mapMessageSyncRow(
+        row({ thread_root_message_id: "c7f2c688-4ead-49f7-9d28-c1a56f8083b5" }),
+        "user-a",
+      ),
+    ).toBeNull();
   });
 
   it("turns hidden messages into tombstones", () => {
