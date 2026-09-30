@@ -50,8 +50,18 @@ export async function readStateRoutes(app: FastifyInstance): Promise<void> {
            OR
            ($3::uuid IS NOT NULL AND conversation_id=$3)
          )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM message_hidden_users hidden
+           WHERE hidden.message_id=messages.id AND hidden.user_id=$4
+         )
        LIMIT 1`,
-      [body.lastReadMessageId, body.channelId ?? null, body.conversationId ?? null],
+      [
+        body.lastReadMessageId,
+        body.channelId ?? null,
+        body.conversationId ?? null,
+        userId,
+      ],
     );
 
     if (!destinationMessage.rows[0]) {
