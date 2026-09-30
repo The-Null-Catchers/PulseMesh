@@ -102,9 +102,6 @@ describe("applyMessageSyncChanges", () => {
       1,
     );
 
-    expect(result.items.map((item) => item.id)).toEqual([
-      "local-failed",
-      "m2",
-    ]);
+    expect(result.items.map((item) => item.id)).toEqual(["local-failed", "m2"]);
   });
 });
