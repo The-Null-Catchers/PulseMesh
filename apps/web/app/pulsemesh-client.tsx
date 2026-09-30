@@ -66,6 +66,7 @@ import {
   typingIndicatorText,
 } from "../lib/display";
 import { tokenExpiresAt, tokenSubject } from "../lib/session";
+import { clearUnreadCount } from "../lib/unread-cache";
 import type {
   Channel,
   Conversation,
@@ -377,16 +378,32 @@ function WorkspaceApp({
               lastReadMessageId: latestMessage.id,
             },
       ),
-    }).catch(() => {
-      delete lastReadRef.current[activeMessageKey];
-    });
+    })
+      .then(() => {
+        if (channelId && workspaceId) {
+          queryClient.setQueryData<{ items: Channel[] }>(
+            ["channels", workspaceId],
+            (current) => clearUnreadCount(current, channelId),
+          );
+        } else if (conversationId) {
+          queryClient.setQueryData<{ items: Conversation[] }>(
+            ["conversations"],
+            (current) => clearUnreadCount(current, conversationId),
+          );
+        }
+      })
+      .catch(() => {
+        delete lastReadRef.current[activeMessageKey];
+      });
   }, [
     activeMessageKey,
     channelId,
     conversationId,
     messages.data,
+    queryClient,
     socketState,
     token,
+    workspaceId,
   ]);
 
   const currentWorkspace = workspaces.data?.items.find(
@@ -578,6 +595,11 @@ function WorkspaceApp({
                 >
                   <Hash className="size-4 opacity-60" />
                   <span className="truncate">{channel.name}</span>
+                  {channel.id !== channelId && channel.unread_count > 0 && (
+                    <span className="ml-auto min-w-5 rounded-full bg-[#68e0cf]/12 px-1.5 text-center text-[10px] font-semibold leading-5 text-[#9af5e8]">
+                      {channel.unread_count > 99 ? "99+" : channel.unread_count}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -615,6 +637,14 @@ function WorkspaceApp({
                       <span className="truncate">
                         {label || "Conversation"}
                       </span>
+                      {conversation.id !== conversationId &&
+                        conversation.unread_count > 0 && (
+                          <span className="ml-auto min-w-5 rounded-full bg-[#73a7ff]/12 px-1.5 text-center text-[10px] font-semibold leading-5 text-[#a8c7ff]">
+                            {conversation.unread_count > 99
+                              ? "99+"
+                              : conversation.unread_count}
+                          </span>
+                        )}
                     </button>
                   );
                 })}
