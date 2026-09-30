@@ -82,10 +82,34 @@ export function usePulseMeshRealtime({
 
     let cancelled = false;
 
+    const syncBase = activeRoom.startsWith("channel:")
+      ? `/channels/${activeMessageKey}/messages`
+      : `/conversations/${activeMessageKey}/messages`;
+
+    const hydrateLatestMessages = async () => {
+      const latest = await request<Page<Message>>(
+        `${syncBase}?limit=50`,
+        token,
+      );
+
+      if (cancelled) return;
+
+      queryClient.setQueryData<Page<Message>>(
+        ["messages", activeMessageKey],
+        (current) =>
+          applyMessageSyncChanges(
+            current,
+            latest.items.map((message) => ({
+              type: "upsert" as const,
+              messageId: message.id,
+              message,
+            })),
+          ),
+      );
+    };
+
     const reconcileMessages = async () => {
-      const destination = activeRoom.startsWith("channel:")
-        ? `/channels/${activeMessageKey}/messages/sync`
-        : `/conversations/${activeMessageKey}/messages/sync`;
+      const destination = `${syncBase}/sync`;
       const storageKey = `pulsemesh:message-sync:${activeRoom}`;
       let after = sessionStorage.getItem(storageKey) ?? "0";
 
@@ -113,10 +137,14 @@ export function usePulseMeshRealtime({
             break;
           }
         }
+
+        await hydrateLatestMessages();
       } catch {
         if (!cancelled) {
-          void queryClient.invalidateQueries({
-            queryKey: ["messages", activeMessageKey],
+          void hydrateLatestMessages().catch(() => {
+            void queryClient.invalidateQueries({
+              queryKey: ["messages", activeMessageKey],
+            });
           });
         }
       }
