@@ -47,6 +47,7 @@ export const realtimeEventSchema = z.discriminatedUnion("type", [
     type: z.literal("inbox.message"),
     payload: z.object({
       messageId: z.string().uuid(),
+      workspaceId: z.string().uuid().nullable(),
       channelId: z.string().uuid().nullable(),
       conversationId: z.string().uuid().nullable(),
       senderId: z.string().uuid(),
