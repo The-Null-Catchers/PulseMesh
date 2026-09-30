@@ -177,7 +177,6 @@ export type Page<T> = {
   nextCursor: string | null;
 };
 
-
 export type MessageSyncChange =
   | {
       cursor: string;
