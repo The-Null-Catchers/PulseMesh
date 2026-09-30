@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { request, WS_URL } from "../lib/api";
+import { advanceSequence, RecentEventIds } from "../lib/realtime-state";
 import type { ActiveCall, CallParticipant, PresenceMember } from "../lib/types";
 
 type SocketState = "connecting" | "ready" | "reconnecting";
@@ -66,6 +67,7 @@ export function usePulseMeshRealtime({
   );
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
+  const recentEventIdsRef = useRef(new RecentEventIds());
 
   useEffect(() => {
     if (!activeRoom || !activeMessageKey) return;
@@ -146,11 +148,30 @@ export function usePulseMeshRealtime({
             return;
           }
 
+          const eventId =
+            typeof event.id === "string" && event.id ? event.id : null;
+          if (eventId && !recentEventIdsRef.current.remember(eventId)) {
+            return;
+          }
+
           if (typeof event.sequence === "number") {
-            sessionStorage.setItem(
-              "pulsemesh:last-sequence",
-              String(event.sequence),
+            const storedSequence = Number(
+              sessionStorage.getItem("pulsemesh:last-sequence") ?? "0",
             );
+            const currentSequence = Number.isFinite(storedSequence)
+              ? storedSequence
+              : 0;
+            const nextSequence = advanceSequence(
+              currentSequence,
+              event.sequence,
+            );
+
+            if (nextSequence !== currentSequence) {
+              sessionStorage.setItem(
+                "pulsemesh:last-sequence",
+                String(nextSequence),
+              );
+            }
           }
 
           if (
