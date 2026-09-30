@@ -40,7 +40,8 @@ class RoomMessage {
     final username = senderUsername?.trim();
     if (username != null && username.isNotEmpty) return '@$username';
 
-    return sending ? 'You' : 'Member';
+    if (clientMessageId != null) return 'You';
+    return 'Member';
   }
 
   factory RoomMessage.fromRow(Map<String, Object?> row) {
