@@ -1,4 +1,6 @@
-export function clearUnreadCount<T extends { id: string; unread_count: number }>(
+export function clearUnreadCount<
+  T extends { id: string; unread_count: number },
+>(
   current: { items: T[] } | undefined,
   id: string,
 ): { items: T[] } | undefined {
