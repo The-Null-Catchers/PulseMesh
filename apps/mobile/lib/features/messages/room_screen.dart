@@ -594,7 +594,9 @@ class _MessageCard extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
           onTap: message.failed ? () => onRetry(message) : null,
-          onLongPress: () => onLongPress(message),
+          onLongPress: () {
+            unawaited(onLongPress(message));
+          },
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 11, 12, 10),
             child: Row(
@@ -710,7 +712,9 @@ class _MessageCard extends StatelessWidget {
                               .map(
                                 (reaction) => InkWell(
                                   borderRadius: BorderRadius.circular(20),
-                                  onTap: () => onReactionPressed(reaction),
+                                  onTap: () {
+                                    unawaited(onReactionPressed(reaction));
+                                  },
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 9,
@@ -891,7 +895,7 @@ class _Composer extends StatelessWidget {
                 children: [
                   IconButton(
                     tooltip: 'Attachments',
-                    onPressed: editing ? null : null,
+                    onPressed: null,
                     icon: const Icon(Icons.add_circle_outline_rounded),
                   ),
                   Expanded(
