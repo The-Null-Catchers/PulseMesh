@@ -48,6 +48,7 @@ class InboxController {
                     id: channel.id,
                     name: channel.name,
                     unreadCount: 0,
+                    kind: channel.kind,
                     visibility: channel.visibility,
                     position: channel.position,
                   )
