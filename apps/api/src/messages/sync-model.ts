@@ -12,6 +12,7 @@ export type MessageSyncRow = {
   encryption_version: string | null;
   encrypted_payload: string | null;
   reply_to_message_id: string | null;
+  thread_root_message_id: string | null;
   created_at: Date | null;
   edited_at: Date | null;
   deleted_at: Date | null;
@@ -24,6 +25,10 @@ export type MessageSyncRow = {
 
 export function mapMessageSyncRow(row: MessageSyncRow, userId: string) {
   if (row.target_user_id !== null && row.target_user_id !== userId) {
+    return null;
+  }
+
+  if (row.thread_root_message_id !== null) {
     return null;
   }
 
