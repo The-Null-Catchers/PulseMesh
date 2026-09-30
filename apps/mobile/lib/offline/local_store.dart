@@ -27,7 +27,7 @@ class LocalMessageStore {
     final root = await getDatabasesPath();
     return openDatabase(
       '$root/$databaseName.sqlite',
-      version: 2,
+      version: 3,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -46,6 +46,17 @@ class LocalMessageStore {
             'ALTER TABLE outgoing_queue ADD COLUMN encrypted_payload TEXT',
           );
         }
+        if (oldVersion < 3) {
+          await db.execute(
+            'ALTER TABLE cached_messages ADD COLUMN sender_username TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE cached_messages ADD COLUMN sender_display_name TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE cached_messages ADD COLUMN sender_avatar_url TEXT',
+          );
+        }
       },
       onCreate: (db, version) async {
         await db.execute('''
@@ -59,6 +70,9 @@ class LocalMessageStore {
             encryption_version TEXT,
             encrypted_payload TEXT,
             sender_id TEXT,
+            sender_username TEXT,
+            sender_display_name TEXT,
+            sender_avatar_url TEXT,
             created_at TEXT NOT NULL,
             edited_at TEXT,
             status TEXT NOT NULL,
@@ -215,6 +229,9 @@ class LocalMessageStore {
           'encryption_version': encryptionVersion,
           'encrypted_payload': encryptedPayload,
           'sender_id': senderId,
+          'sender_username': null,
+          'sender_display_name': null,
+          'sender_avatar_url': null,
           'created_at': timestamp,
           'edited_at': null,
           'status': 'sending',
@@ -543,6 +560,9 @@ class LocalMessageStore {
         'encryption_version': message['encryptionVersion'] as String?,
         'encrypted_payload': message['encryptedPayload'] as String?,
         'sender_id': sender?['id'] as String?,
+        'sender_username': sender?['username'] as String?,
+        'sender_display_name': sender?['displayName'] as String?,
+        'sender_avatar_url': sender?['avatarUrl'] as String?,
         'created_at': createdAt,
         'edited_at': message['editedAt'] as String?,
         'status': 'sent',
