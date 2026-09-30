@@ -2,10 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'auth/auth_bootstrap.dart';
+import 'theme/app_theme.dart';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ProviderScope(child: PulseMeshApp()));
+  runApp(
+    ProviderScope(
+      child: MobileAuthBootstrap(
+        authenticatedAppBuilder: _authenticatedApp,
+      ),
+    ),
+  );
 }
+
+Widget _authenticatedApp() => const PulseMeshApp();
 
 final router = GoRouter(
   initialLocation: '/home',
@@ -27,20 +38,10 @@ class PulseMeshApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF68E0CF),
-      brightness: Brightness.dark,
-      surface: const Color(0xFF0B171C),
-    );
-
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       title: 'PulseMesh',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: scheme,
-        scaffoldBackgroundColor: const Color(0xFF071015),
-      ),
+      theme: buildPulseMeshTheme(),
       routerConfig: router,
     );
   }
