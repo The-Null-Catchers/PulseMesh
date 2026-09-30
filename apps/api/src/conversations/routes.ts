@@ -53,7 +53,55 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: app.authenticate },
     async (request) => {
       const result = await pool.query(
-        "SELECT c.id,c.kind,c.name,c.avatar_url,c.encryption_mode,c.created_at,COALESCE(json_agg(json_build_object('id',u.id,'username',u.username,'displayName',u.display_name,'avatarUrl',u.avatar_url) ORDER BY u.display_name) FILTER (WHERE u.id IS NOT NULL),'[]'::json) AS members FROM conversations c JOIN conversation_members mine ON mine.conversation_id=c.id AND mine.user_id=$1 LEFT JOIN conversation_members cm ON cm.conversation_id=c.id LEFT JOIN users u ON u.id=cm.user_id GROUP BY c.id ORDER BY c.updated_at DESC,c.created_at DESC",
+        `SELECT
+           c.id,
+           c.kind,
+           c.name,
+           c.avatar_url,
+           c.encryption_mode,
+           c.created_at,
+           COALESCE(unread.unread_count,0)::int AS unread_count,
+           COALESCE(
+             json_agg(
+               json_build_object(
+                 'id',u.id,
+                 'username',u.username,
+                 'displayName',u.display_name,
+                 'avatarUrl',u.avatar_url
+               )
+               ORDER BY u.display_name
+             ) FILTER (WHERE u.id IS NOT NULL),
+             '[]'::json
+           ) AS members
+         FROM conversations c
+         JOIN conversation_members mine
+           ON mine.conversation_id=c.id AND mine.user_id=$1
+         LEFT JOIN conversation_members cm
+           ON cm.conversation_id=c.id
+         LEFT JOIN users u
+           ON u.id=cm.user_id
+         LEFT JOIN read_states rs
+           ON rs.user_id=$1 AND rs.conversation_id=c.id
+         LEFT JOIN messages read_message
+           ON read_message.id=rs.last_read_message_id
+         LEFT JOIN LATERAL (
+           SELECT count(*)::int AS unread_count
+           FROM messages m
+           WHERE m.conversation_id=c.id
+             AND m.deleted_at IS NULL
+             AND m.sender_user_id<>$1
+             AND NOT EXISTS (
+               SELECT 1
+               FROM message_hidden_users hidden
+               WHERE hidden.message_id=m.id AND hidden.user_id=$1
+             )
+             AND (
+               read_message.id IS NULL
+               OR (m.created_at,m.id) > (read_message.created_at,read_message.id)
+             )
+         ) unread ON TRUE
+         GROUP BY c.id,unread.unread_count
+         ORDER BY c.updated_at DESC,c.created_at DESC`,
         [request.auth?.userId],
       );
       return { items: result.rows };
