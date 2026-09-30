@@ -37,6 +37,8 @@ class OfflineSyncEngine {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   Future<void>? _synchronizeFuture;
   Future<void>? _flushFuture;
+  final Map<RoomRef, Future<void>> _roomReconcileFutures =
+      <RoomRef, Future<void>>{};
   bool _disposed = false;
 
   void watchRoom(RoomRef room) {
@@ -175,9 +177,23 @@ class OfflineSyncEngine {
     }
   }
 
-  Future<void> reconcileRoom(RoomRef room) async {
-    if (_disposed) return;
+  Future<void> reconcileRoom(RoomRef room) {
+    if (_disposed) return Future<void>.value();
 
+    final existing = _roomReconcileFutures[room];
+    if (existing != null) return existing;
+
+    late final Future<void> future;
+    future = _runReconcileRoom(room).whenComplete(() {
+      if (identical(_roomReconcileFutures[room], future)) {
+        _roomReconcileFutures.remove(room);
+      }
+    });
+    _roomReconcileFutures[room] = future;
+    return future;
+  }
+
+  Future<void> _runReconcileRoom(RoomRef room) async {
     var state = await _store.syncState(room);
 
     if (!state.bootstrapped) {
