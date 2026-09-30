@@ -45,10 +45,14 @@ Demo workspace: The Null Catchers
 
 Run the Android mobile client against the local API with:
 
-    cd apps/mobile
-    flutter run --dart-define=PULSEMESH_API_URL=http://10.0.2.2:4000
+```bash
+cd apps/mobile
+flutter run \\
+  --dart-define=PULSEMESH_API_URL=http://10.0.2.2:4000 \\
+  --dart-define=PULSEMESH_WS_URL=ws://10.0.2.2:4000/realtime
+```
 
-For a physical device or production build, set `PULSEMESH_API_URL` to the reachable HTTPS API origin.
+For a physical device or production build, set `PULSEMESH_API_URL` to the reachable HTTPS API origin and `PULSEMESH_WS_URL` to its reachable `wss://.../realtime` endpoint.
 
 Demo users: Mohammed, Lama, Abdullah, Ibrahim, Shorouq
 

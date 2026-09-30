@@ -3,6 +3,7 @@ class ChannelSummary {
     required this.id,
     required this.name,
     required this.unreadCount,
+    required this.kind,
     required this.visibility,
     required this.position,
   });
@@ -10,16 +11,19 @@ class ChannelSummary {
   final String id;
   final String name;
   final int unreadCount;
+  final String kind;
   final String visibility;
   final int position;
 
   bool get hasUnread => unreadCount > 0;
+  bool get isVoice => kind == 'voice';
 
   factory ChannelSummary.fromJson(Map<String, dynamic> json) {
     return ChannelSummary(
       id: json['id'] as String,
       name: json['name'] as String,
       unreadCount: _intValue(json['unread_count']),
+      kind: json['kind'] as String? ?? 'text',
       visibility: json['visibility'] as String? ?? 'public',
       position: _intValue(json['position']),
     );

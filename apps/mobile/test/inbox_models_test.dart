@@ -7,6 +7,7 @@ void main() {
       final channel = ChannelSummary.fromJson({
         'id': 'channel-1',
         'name': 'backend',
+        'kind': 'voice',
         'visibility': 'public',
         'position': 2,
         'unread_count': 6,
@@ -16,6 +17,7 @@ void main() {
       expect(channel.name, 'backend');
       expect(channel.unreadCount, 6);
       expect(channel.hasUnread, isTrue);
+      expect(channel.isVoice, isTrue);
     });
 
     test('parses conversation members and unread counts', () {
