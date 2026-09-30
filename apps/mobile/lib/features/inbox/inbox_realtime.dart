@@ -276,9 +276,9 @@ class MobileInboxRealtimeBridge {
     if (_stopped || _retryTimer?.isActive == true) return;
 
     _reconnectAttempt += 1;
-    final exponent = _reconnectAttempt.clamp(1, 5);
+    final exponent = _reconnectAttempt.clamp(1, 5).toInt();
     final delaySeconds = 1 << (exponent - 1);
-    final delay = Duration(seconds: delaySeconds.clamp(1, 30));
+    final delay = Duration(seconds: delaySeconds.clamp(1, 30).toInt());
 
     _setState(MobileRealtimeState.reconnecting);
     _retryTimer = Timer(delay, () {
