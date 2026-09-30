@@ -25,6 +25,34 @@ void main() {
     expect(message.sending, isFalse);
   });
 
+
+  test('parses reply references and reaction snapshots', () {
+    final message = RoomMessage.fromRow({
+      'local_id': 'message-2',
+      'server_id': 'message-2',
+      'client_message_id': null,
+      'body': 'Looks good',
+      'sender_id': 'user-2',
+      'sender_username': 'lama',
+      'sender_display_name': 'Lama',
+      'sender_avatar_url': null,
+      'reply_to_message_id': 'message-1',
+      'reactions_json':
+          '[{"emoji":"👍","count":4,"reactedByMe":true},{"emoji":"🔥","count":2,"reactedByMe":false}]',
+      'created_at': '2026-09-30T18:01:00.000Z',
+      'edited_at': null,
+      'status': 'sent',
+      'encryption_version': null,
+      'encrypted_payload': null,
+    });
+
+    expect(message.replyToMessageId, 'message-1');
+    expect(message.reactions, hasLength(2));
+    expect(message.reactions.first.emoji, '👍');
+    expect(message.reactions.first.count, 4);
+    expect(message.reactions.first.reactedByMe, isTrue);
+  });
+
   test('keeps optimistic messages identifiable as self', () {
     final message = RoomMessage.fromRow({
       'local_id': 'client-1',
