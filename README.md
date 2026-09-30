@@ -43,6 +43,13 @@ Development endpoints:
 
 Demo workspace: The Null Catchers
 
+Run the Android mobile client against the local API with:
+
+    cd apps/mobile
+    flutter run --dart-define=PULSEMESH_API_URL=http://10.0.2.2:4000
+
+For a physical device or production build, set `PULSEMESH_API_URL` to the reachable HTTPS API origin.
+
 Demo users: Mohammed, Lama, Abdullah, Ibrahim, Shorouq
 
 Development seed password: PulseMeshDemo123!
