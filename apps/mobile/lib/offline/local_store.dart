@@ -27,7 +27,7 @@ class LocalMessageStore {
     final root = await getDatabasesPath();
     return openDatabase(
       '$root/$databaseName.sqlite',
-      version: 3,
+      version: 4,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -57,6 +57,14 @@ class LocalMessageStore {
             'ALTER TABLE cached_messages ADD COLUMN sender_avatar_url TEXT',
           );
         }
+        if (oldVersion < 4) {
+          await db.execute(
+            'ALTER TABLE cached_messages ADD COLUMN reply_to_message_id TEXT',
+          );
+          await db.execute(
+            "ALTER TABLE cached_messages ADD COLUMN reactions_json TEXT NOT NULL DEFAULT '[]'",
+          );
+        }
       },
       onCreate: (db, version) async {
         await db.execute('''
@@ -73,6 +81,8 @@ class LocalMessageStore {
             sender_username TEXT,
             sender_display_name TEXT,
             sender_avatar_url TEXT,
+            reply_to_message_id TEXT,
+            reactions_json TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL,
             edited_at TEXT,
             status TEXT NOT NULL,
@@ -232,6 +242,8 @@ class LocalMessageStore {
           'sender_username': null,
           'sender_display_name': null,
           'sender_avatar_url': null,
+          'reply_to_message_id': replyToMessageId,
+          'reactions_json': '[]',
           'created_at': timestamp,
           'edited_at': null,
           'status': 'sending',
@@ -563,6 +575,10 @@ class LocalMessageStore {
         'sender_username': sender?['username'] as String?,
         'sender_display_name': sender?['displayName'] as String?,
         'sender_avatar_url': sender?['avatarUrl'] as String?,
+        'reply_to_message_id': message['replyToMessageId'] as String?,
+        'reactions_json': jsonEncode(
+          message['reactions'] as List<dynamic>? ?? const [],
+        ),
         'created_at': createdAt,
         'edited_at': message['editedAt'] as String?,
         'status': 'sent',
