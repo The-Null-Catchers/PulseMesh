@@ -44,6 +44,17 @@ const callParticipantSchema = z.object({
 export const realtimeEventSchema = z.discriminatedUnion("type", [
   z.object({
     ...base,
+    type: z.literal("inbox.message"),
+    payload: z.object({
+      messageId: z.string().uuid(),
+      channelId: z.string().uuid().nullable(),
+      conversationId: z.string().uuid().nullable(),
+      senderId: z.string().uuid(),
+      createdAt: z.string(),
+    }),
+  }),
+  z.object({
+    ...base,
     type: z.literal("message.created"),
     payload: z.object({
       id: z.string().uuid(),
