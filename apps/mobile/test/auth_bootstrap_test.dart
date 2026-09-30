@@ -62,7 +62,7 @@ void main() {
     await tester.pumpWidget(
       MobileAuthBootstrap(
         controller: controller,
-        authenticatedAppBuilder: () => const MaterialApp(
+        authenticatedAppBuilder: (_) => const MaterialApp(
           home: Scaffold(body: Text('Authenticated workspace')),
         ),
       ),
@@ -95,7 +95,7 @@ void main() {
     await tester.pumpWidget(
       MobileAuthBootstrap(
         controller: controller,
-        authenticatedAppBuilder: () => const SizedBox.shrink(),
+        authenticatedAppBuilder: (_) => const SizedBox.shrink(),
       ),
     );
     await tester.pumpAndSettle();
