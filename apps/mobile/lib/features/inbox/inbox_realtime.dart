@@ -9,7 +9,8 @@ import '../../offline/models.dart';
 
 typedef MobileAccessTokenProvider = Future<String?> Function();
 typedef InboxDirtyCallback = Future<void> Function();
-typedef RoomDirtyCallback = Future<void> Function(RoomRef room);
+typedef RoomDirtyCallback = Future<void> Function(RoomRef room, String eventType);
+typedef TypingChangedCallback = void Function(RoomRef room, Set<String> userIds);
 
 enum MobileRealtimeState { disconnected, connecting, ready, reconnecting }
 
@@ -99,6 +100,7 @@ class MobileInboxRealtimeBridge {
     required LocalMessageStore localStore,
     required InboxDirtyCallback onInboxDirty,
     this.onRoomDirty,
+    this.onTypingChanged,
     this.onStateChanged,
     this.inboxDebounce = const Duration(milliseconds: 250),
   })  : _ticketProvider = ticketProvider,
@@ -110,16 +112,20 @@ class MobileInboxRealtimeBridge {
   final LocalMessageStore _localStore;
   final InboxDirtyCallback _onInboxDirty;
   final RoomDirtyCallback? onRoomDirty;
+  final TypingChangedCallback? onTypingChanged;
   final void Function(MobileRealtimeState state)? onStateChanged;
   final Duration inboxDebounce;
 
   final Set<RoomRef> _rooms = <RoomRef>{};
+  final Map<RoomRef, Map<String, DateTime>> _typingByRoom =
+      <RoomRef, Map<String, DateTime>>{};
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
   Timer? _heartbeatTimer;
   Timer? _retryTimer;
   Timer? _inboxDebounceTimer;
+  Timer? _typingSweepTimer;
   bool _stopped = true;
   int _reconnectAttempt = 0;
   int _lastSequence = 0;
@@ -147,6 +153,8 @@ class MobileInboxRealtimeBridge {
 
   void unwatchRoom(RoomRef room) {
     _rooms.remove(room);
+    _typingByRoom.remove(room);
+    onTypingChanged?.call(room, const <String>{});
 
     if (_state == MobileRealtimeState.ready) {
       _send({'type': 'room.unsubscribe', 'room': room.cacheKey});
@@ -162,6 +170,10 @@ class MobileInboxRealtimeBridge {
 
   Future<void> stop() async {
     _stopped = true;
+    for (final room in _typingByRoom.keys.toList(growable: false)) {
+      onTypingChanged?.call(room, const <String>{});
+    }
+    _typingByRoom.clear();
     _rooms.clear();
     _activeRoom = null;
     _retryTimer?.cancel();
@@ -170,6 +182,8 @@ class MobileInboxRealtimeBridge {
     _heartbeatTimer = null;
     _inboxDebounceTimer?.cancel();
     _inboxDebounceTimer = null;
+    _typingSweepTimer?.cancel();
+    _typingSweepTimer = null;
 
     final subscription = _subscription;
     _subscription = null;
@@ -259,7 +273,7 @@ class MobileInboxRealtimeBridge {
         final roomCallback = onRoomDirty;
         if (roomCallback != null) {
           for (final room in _rooms) {
-            unawaited(roomCallback(room));
+            unawaited(roomCallback(room, 'session.truncated'));
           }
         }
       }
@@ -275,11 +289,18 @@ class MobileInboxRealtimeBridge {
       }
     }
 
+    if (type == 'typing.started' || type == 'typing.stopped') {
+      _handleTypingEvent(event);
+    }
+
     if (_isRoomMutation(type)) {
       final room = _roomFromRealtimeName(event['room']);
       final roomCallback = onRoomDirty;
-      if (room != null && _rooms.contains(room) && roomCallback != null) {
-        unawaited(roomCallback(room));
+      if (room != null &&
+          _rooms.contains(room) &&
+          roomCallback != null &&
+          type is String) {
+        unawaited(roomCallback(room, type));
       }
     }
 
@@ -316,6 +337,66 @@ class MobileInboxRealtimeBridge {
     };
   }
 
+  void sendTyping(RoomRef room, {required bool typing}) {
+    if (_state != MobileRealtimeState.ready || !_rooms.contains(room)) return;
+    _send({
+      'type': typing ? 'typing.started' : 'typing.stopped',
+      'room': room.cacheKey,
+    });
+  }
+
+  void _handleTypingEvent(Map<String, dynamic> event) {
+    final room = _roomFromRealtimeName(event['room']);
+    if (room == null || !_rooms.contains(room)) return;
+
+    final payloadValue = event['payload'];
+    if (payloadValue is! Map) return;
+    final payload = Map<String, dynamic>.from(payloadValue);
+    final userId = payload['userId'] as String?;
+    if (userId == null || userId.isEmpty) return;
+
+    final users = _typingByRoom.putIfAbsent(
+      room,
+      () => <String, DateTime>{},
+    );
+
+    if (event['type'] == 'typing.stopped') {
+      users.remove(userId);
+    } else {
+      final expiresAt = payload['expiresAt'] as String?;
+      users[userId] = expiresAt == null
+          ? DateTime.now().toUtc().add(const Duration(seconds: 8))
+          : DateTime.parse(expiresAt).toUtc();
+      _startTypingSweep();
+    }
+
+    _emitTyping(room);
+  }
+
+  void _startTypingSweep() {
+    if (_typingSweepTimer?.isActive == true) return;
+    _typingSweepTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final now = DateTime.now().toUtc();
+      var hasTyping = false;
+
+      for (final entry in _typingByRoom.entries) {
+        entry.value.removeWhere((_, expiresAt) => !expiresAt.isAfter(now));
+        if (entry.value.isNotEmpty) hasTyping = true;
+        _emitTyping(entry.key);
+      }
+
+      if (!hasTyping) {
+        _typingSweepTimer?.cancel();
+        _typingSweepTimer = null;
+      }
+    });
+  }
+
+  void _emitTyping(RoomRef room) {
+    final users = _typingByRoom[room]?.keys.toSet() ?? const <String>{};
+    onTypingChanged?.call(room, users);
+  }
+
   void _send(Map<String, dynamic> message) {
     final channel = _channel;
     if (channel == null) return;
@@ -341,6 +422,12 @@ class MobileInboxRealtimeBridge {
 
   void _handleDisconnect() {
     if (_stopped) return;
+    for (final room in _typingByRoom.keys.toList(growable: false)) {
+      _typingByRoom[room]?.clear();
+      _emitTyping(room);
+    }
+    _typingSweepTimer?.cancel();
+    _typingSweepTimer = null;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
     _subscription = null;

@@ -9,6 +9,7 @@ import 'package:pulsemesh/features/inbox/inbox_models.dart';
 import 'package:pulsemesh/features/inbox/inbox_transport.dart';
 import 'package:pulsemesh/features/inbox/mobile_data_controller.dart';
 import 'package:pulsemesh/features/inbox/mobile_data_scope.dart';
+import 'package:pulsemesh/features/messages/message_actions_transport.dart';
 import 'package:pulsemesh/features/workspaces/workspace_models.dart';
 import 'package:pulsemesh/features/workspaces/workspace_transport.dart';
 import 'package:pulsemesh/main.dart';
@@ -66,6 +67,27 @@ class EmptyMessageSyncTransport implements MessageSyncTransport {
       const SyncPage(changes: [], nextAfter: '0', hasMore: false);
 }
 
+class EmptyMessageActionsTransport implements MessageActionsTransport {
+  @override
+  Future<void> deleteMessage({
+    required String messageId,
+    required String scope,
+  }) async {}
+
+  @override
+  Future<void> editMessage({
+    required String messageId,
+    required String body,
+  }) async {}
+
+  @override
+  Future<void> setReaction({
+    required String messageId,
+    required String emoji,
+    required bool active,
+  }) async {}
+}
+
 class EmptyAuthStore implements AuthSessionStore {
   @override
   Future<void> clearRefreshToken() async {}
@@ -113,6 +135,7 @@ void main() {
       workspaceTransport: EmptyWorkspaceTransport(),
       inboxTransport: EmptyInboxTransport(),
       messageSyncTransport: EmptyMessageSyncTransport(),
+      messageActionsTransport: EmptyMessageActionsTransport(),
     );
     addTearDown(data.dispose);
 

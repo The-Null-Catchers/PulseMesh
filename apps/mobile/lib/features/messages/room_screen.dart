@@ -40,6 +40,10 @@ class _RoomScreenState extends State<RoomScreen> {
 
   MobileDataController? _data;
   List<RoomMessage> _messages = const [];
+  RoomMessage? _replyingTo;
+  RoomMessage? _editingMessage;
+  Timer? _typingStopTimer;
+  bool _typingSent = false;
   bool _loading = true;
   bool _sending = false;
   bool _refreshingCache = false;
@@ -89,21 +93,50 @@ class _RoomScreenState extends State<RoomScreen> {
 
   Future<void> _send() async {
     if (_sending || widget.encrypted) return;
+
     final body = _composer.text.trim();
     if (body.isEmpty) return;
 
+    final editing = _editingMessage;
+    final reply = _replyingTo;
+
     setState(() => _sending = true);
+    _stopTyping();
     _composer.clear();
 
     try {
-      await _data?.sendRoomMessage(widget.room, body);
+      if (editing != null && editing.serverId != null) {
+        await _data?.editRoomMessage(
+          room: widget.room,
+          messageId: editing.serverId!,
+          body: body,
+        );
+      } else {
+        await _data?.sendRoomMessage(
+          widget.room,
+          body,
+          replyToMessageId: reply?.serverId,
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _editingMessage = null;
+        _replyingTo = null;
+      });
       await _loadFromCache();
       _composerFocus.requestFocus();
     } catch (_) {
       if (!mounted) return;
       _composer.text = body;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not queue this message.')),
+        SnackBar(
+          content: Text(
+            editing == null
+                ? 'Could not queue this message.'
+                : 'Could not edit this message.',
+          ),
+        ),
       );
     } finally {
       if (mounted) {
@@ -122,13 +155,246 @@ class _RoomScreenState extends State<RoomScreen> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Retry will resume when connectivity returns.')),
+        const SnackBar(
+          content: Text('Retry will resume when connectivity returns.'),
+        ),
       );
     }
   }
 
+  void _onComposerChanged(String value) {
+    if (widget.encrypted || _editingMessage != null) return;
+
+    if (value.trim().isEmpty) {
+      _stopTyping();
+      return;
+    }
+
+    if (!_typingSent) {
+      _data?.setTyping(widget.room, typing: true);
+      _typingSent = true;
+    }
+
+    _typingStopTimer?.cancel();
+    _typingStopTimer = Timer(const Duration(seconds: 3), _stopTyping);
+  }
+
+  void _stopTyping() {
+    _typingStopTimer?.cancel();
+    _typingStopTimer = null;
+
+    if (!_typingSent) return;
+    _typingSent = false;
+    _data?.setTyping(widget.room, typing: false);
+  }
+
+  void _startReply(RoomMessage message) {
+    if (message.serverId == null || widget.encrypted) return;
+    setState(() {
+      _replyingTo = message;
+      _editingMessage = null;
+    });
+    _composerFocus.requestFocus();
+  }
+
+  void _startEdit(RoomMessage message) {
+    if (message.serverId == null || message.encrypted || widget.encrypted) {
+      return;
+    }
+
+    _stopTyping();
+    setState(() {
+      _editingMessage = message;
+      _replyingTo = null;
+      _composer.text = message.body;
+      _composer.selection = TextSelection.collapsed(
+        offset: _composer.text.length,
+      );
+    });
+    _composerFocus.requestFocus();
+  }
+
+  void _cancelComposerContext() {
+    setState(() {
+      _replyingTo = null;
+      _editingMessage = null;
+      _composer.clear();
+    });
+    _stopTyping();
+  }
+
+  Future<void> _setReaction(
+    RoomMessage message,
+    String emoji, {
+    required bool active,
+  }) async {
+    final messageId = message.serverId;
+    if (messageId == null) return;
+
+    try {
+      await _data?.setRoomReaction(
+        room: widget.room,
+        messageId: messageId,
+        emoji: emoji,
+        active: active,
+      );
+      await _loadFromCache();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update reaction.')),
+      );
+    }
+  }
+
+  Future<void> _deleteMessage(
+    RoomMessage message, {
+    required String scope,
+  }) async {
+    final messageId = message.serverId;
+    if (messageId == null) return;
+
+    try {
+      await _data?.deleteRoomMessage(
+        room: widget.room,
+        messageId: messageId,
+        scope: scope,
+      );
+      if (!mounted) return;
+
+      if (_editingMessage?.serverId == messageId ||
+          _replyingTo?.serverId == messageId) {
+        _cancelComposerContext();
+      }
+      await _loadFromCache();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not delete this message.')),
+      );
+    }
+  }
+
+  Future<void> _showMessageActions(RoomMessage message) async {
+    if (message.serverId == null) {
+      if (message.failed) {
+        await _retry(message);
+      }
+      return;
+    }
+
+    final data = _data;
+    if (data == null) return;
+    final isMine = message.senderId != null &&
+        message.senderId == data.currentUserId;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFF0C171C),
+      builder: (sheetContext) {
+        const quickReactions = ['👍', '🔥', '😂', '❤️', '👀'];
+
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  height: 54,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: quickReactions.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final emoji = quickReactions[index];
+                      RoomReaction? existing;
+                      for (final reaction in message.reactions) {
+                        if (reaction.emoji == emoji) {
+                          existing = reaction;
+                          break;
+                        }
+                      }
+                      return ActionChip(
+                        label: Text(
+                          existing == null
+                              ? emoji
+                              : '$emoji ${existing.count}',
+                          style: const TextStyle(fontSize: 18),
+                        ),
+                        side: BorderSide(
+                          color: existing?.reactedByMe == true
+                              ? const Color(0xFF68E0CF)
+                              : const Color(0xFF24404A),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          unawaited(
+                            _setReaction(
+                              message,
+                              emoji,
+                              active: existing?.reactedByMe != true,
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+                if (!widget.encrypted)
+                  ListTile(
+                    leading: const Icon(Icons.reply_rounded),
+                    title: const Text('Reply'),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _startReply(message);
+                    },
+                  ),
+                if (isMine && !message.encrypted && !widget.encrypted)
+                  ListTile(
+                    leading: const Icon(Icons.edit_outlined),
+                    title: const Text('Edit message'),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _startEdit(message);
+                    },
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.visibility_off_outlined),
+                  title: const Text('Delete for me'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    unawaited(_deleteMessage(message, scope: 'self'));
+                  },
+                ),
+                if (isMine)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.delete_outline_rounded,
+                      color: Colors.redAccent,
+                    ),
+                    title: const Text(
+                      'Delete for everyone',
+                      style: TextStyle(color: Colors.redAccent),
+                    ),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      unawaited(_deleteMessage(message, scope: 'everyone'));
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
+    _stopTyping();
     final data = _data;
     data?.removeListener(_onDataChanged);
     data?.closeRoom(widget.room);
@@ -140,6 +406,7 @@ class _RoomScreenState extends State<RoomScreen> {
   @override
   Widget build(BuildContext context) {
     final data = MobileDataScope.of(context);
+    final typingText = _typingText(data);
 
     return Scaffold(
       appBar: AppBar(
@@ -169,10 +436,14 @@ class _RoomScreenState extends State<RoomScreen> {
               ],
             ),
             Text(
-              _connectionText(data),
+              typingText ?? _connectionText(data),
               style: TextStyle(
                 fontSize: 11,
-                color: data.offline ? Colors.orangeAccent : Colors.white54,
+                color: typingText != null
+                    ? const Color(0xFF68E0CF)
+                    : data.offline
+                        ? Colors.orangeAccent
+                        : Colors.white54,
               ),
             ),
           ],
@@ -207,35 +478,103 @@ class _RoomScreenState extends State<RoomScreen> {
                           padding: const EdgeInsets.fromLTRB(12, 16, 12, 18),
                           itemCount: _messages.length,
                           itemBuilder: (context, index) {
+                            final message = _messages[index];
                             return _MessageCard(
-                              message: _messages[index],
+                              message: message,
+                              replyPreview: _replyPreview(message),
+                              isMine: message.senderId != null &&
+                                  message.senderId == data.currentUserId,
                               onRetry: _retry,
+                              onLongPress: _showMessageActions,
+                              onReactionPressed: (reaction) => _setReaction(
+                                message,
+                                reaction.emoji,
+                                active: !reaction.reactedByMe,
+                              ),
                             );
                           },
                         ),
                       ),
+          ),
+          _ComposerContextBanner(
+            replyingTo: _replyingTo,
+            editingMessage: _editingMessage,
+            onCancel: _cancelComposerContext,
           ),
           _Composer(
             controller: _composer,
             focusNode: _composerFocus,
             encrypted: widget.encrypted,
             sending: _sending,
+            editing: _editingMessage != null,
+            onChanged: _onComposerChanged,
             onSend: _send,
           ),
         ],
       ),
     );
   }
+
+  String? _replyPreview(RoomMessage message) {
+    final replyId = message.replyToMessageId;
+    if (replyId == null) return null;
+
+    for (final candidate in _messages) {
+      if (candidate.serverId != replyId) continue;
+      final body = candidate.encrypted ? 'Encrypted message' : candidate.body;
+      final trimmed = body.trim();
+      if (trimmed.isEmpty) return 'Reply to an attachment';
+      return '${candidate.senderLabel}: ${_shorten(trimmed, 90)}';
+    }
+
+    return 'Reply to an earlier message';
+  }
+
+  String? _typingText(MobileDataController data) {
+    final currentUserId = data.currentUserId;
+    final ids = data
+        .typingUsersForRoom(widget.room)
+        .where((id) => id != currentUserId)
+        .toList(growable: false);
+    if (ids.isEmpty) return null;
+
+    final names = <String>[];
+    for (final id in ids) {
+      String? name;
+      for (final message in _messages) {
+        if (message.senderId == id) {
+          name = message.senderLabel;
+          break;
+        }
+      }
+      names.add(name ?? 'Someone');
+    }
+
+    final unique = names.toSet().toList(growable: false);
+    if (unique.length == 1) return '${unique.first} is typing…';
+    if (unique.length == 2) {
+      return '${unique.first} and ${unique.last} are typing…';
+    }
+    return '${unique.take(2).join(', ')} and others are typing…';
+  }
 }
 
 class _MessageCard extends StatelessWidget {
   const _MessageCard({
     required this.message,
+    required this.replyPreview,
+    required this.isMine,
     required this.onRetry,
+    required this.onLongPress,
+    required this.onReactionPressed,
   });
 
   final RoomMessage message;
+  final String? replyPreview;
+  final bool isMine;
   final Future<void> Function(RoomMessage message) onRetry;
+  final Future<void> Function(RoomMessage message) onLongPress;
+  final Future<void> Function(RoomReaction reaction) onReactionPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -248,13 +587,16 @@ class _MessageCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Material(
-        color: message.clientMessageId != null
+        color: isMine || message.clientMessageId != null
             ? const Color(0xFF10282C)
             : const Color(0xFF0B171C),
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
           onTap: message.failed ? () => onRetry(message) : null,
+          onLongPress: () {
+            unawaited(onLongPress(message));
+          },
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 11, 12, 10),
             child: Row(
@@ -306,6 +648,36 @@ class _MessageCard extends StatelessWidget {
                             ),
                         ],
                       ),
+                      if (replyPreview != null) ...[
+                        const SizedBox(height: 7),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF13242B),
+                            borderRadius: BorderRadius.circular(10),
+                            border: const Border(
+                              left: BorderSide(
+                                color: Color(0xFF68E0CF),
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                          child: Text(
+                            replyPreview!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 11,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 5),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -331,6 +703,44 @@ class _MessageCard extends StatelessWidget {
                           ),
                         ],
                       ),
+                      if (message.reactions.isNotEmpty) ...[
+                        const SizedBox(height: 9),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: message.reactions
+                              .map(
+                                (reaction) => InkWell(
+                                  borderRadius: BorderRadius.circular(20),
+                                  onTap: () {
+                                    unawaited(onReactionPressed(reaction));
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 9,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: reaction.reactedByMe
+                                          ? const Color(0x2268E0CF)
+                                          : const Color(0xFF13242B),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: reaction.reactedByMe
+                                            ? const Color(0xFF68E0CF)
+                                            : const Color(0xFF24404A),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      '${reaction.emoji} ${reaction.count}',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -340,6 +750,76 @@ class _MessageCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ComposerContextBanner extends StatelessWidget {
+  const _ComposerContextBanner({
+    required this.replyingTo,
+    required this.editingMessage,
+    required this.onCancel,
+  });
+
+  final RoomMessage? replyingTo;
+  final RoomMessage? editingMessage;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final message = editingMessage ?? replyingTo;
+    if (message == null) return const SizedBox.shrink();
+
+    final editing = editingMessage != null;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 9, 8, 9),
+      decoration: const BoxDecoration(
+        color: Color(0xFF0D1D22),
+        border: Border(top: BorderSide(color: Color(0xFF173039))),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            editing ? Icons.edit_outlined : Icons.reply_rounded,
+            size: 18,
+            color: const Color(0xFF68E0CF),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  editing ? 'Editing message' : 'Replying to ${message.senderLabel}',
+                  style: const TextStyle(
+                    color: Color(0xFF68E0CF),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  _shorten(
+                    message.encrypted ? 'Encrypted message' : message.body,
+                    90,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Cancel',
+            onPressed: onCancel,
+            icon: const Icon(Icons.close_rounded, size: 18),
+          ),
+        ],
       ),
     );
   }
@@ -385,6 +865,8 @@ class _Composer extends StatelessWidget {
     required this.focusNode,
     required this.encrypted,
     required this.sending,
+    required this.editing,
+    required this.onChanged,
     required this.onSend,
   });
 
@@ -392,6 +874,8 @@ class _Composer extends StatelessWidget {
   final FocusNode focusNode;
   final bool encrypted;
   final bool sending;
+  final bool editing;
+  final ValueChanged<String> onChanged;
   final Future<void> Function() onSend;
 
   @override
@@ -422,19 +906,22 @@ class _Composer extends StatelessWidget {
                       minLines: 1,
                       maxLines: 5,
                       textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
-                        hintText: 'Message…',
+                      decoration: InputDecoration(
+                        hintText: editing ? 'Edit message…' : 'Message…',
                         isDense: true,
                       ),
+                      onChanged: onChanged,
                       onSubmitted: (_) => onSend(),
                     ),
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
                     key: const Key('room-send'),
-                    tooltip: 'Send',
+                    tooltip: editing ? 'Save edit' : 'Send',
                     onPressed: sending ? null : onSend,
-                    icon: const Icon(Icons.arrow_upward_rounded),
+                    icon: Icon(
+                      editing ? Icons.check_rounded : Icons.arrow_upward_rounded,
+                    ),
                   ),
                 ],
               ),
@@ -536,4 +1023,10 @@ String _formatTime(DateTime value) {
   final hour = local.hour.toString().padLeft(2, '0');
   final minute = local.minute.toString().padLeft(2, '0');
   return '$hour:$minute';
+}
+
+String _shorten(String value, int limit) {
+  final normalized = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalized.length <= limit) return normalized;
+  return '${normalized.substring(0, limit - 1)}…';
 }

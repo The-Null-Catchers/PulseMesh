@@ -1,3 +1,28 @@
+import 'dart:convert';
+
+class RoomReaction {
+  const RoomReaction({
+    required this.emoji,
+    required this.count,
+    required this.reactedByMe,
+  });
+
+  final String emoji;
+  final int count;
+  final bool reactedByMe;
+
+  factory RoomReaction.fromJson(Map<String, dynamic> json) {
+    final rawCount = json['count'];
+    return RoomReaction(
+      emoji: json['emoji'] as String? ?? '',
+      count: rawCount is num
+          ? rawCount.toInt()
+          : int.tryParse(rawCount?.toString() ?? '') ?? 0,
+      reactedByMe: json['reactedByMe'] as bool? ?? false,
+    );
+  }
+}
+
 class RoomMessage {
   const RoomMessage({
     required this.localId,
@@ -13,6 +38,8 @@ class RoomMessage {
     required this.status,
     required this.encryptionVersion,
     required this.encryptedPayload,
+    required this.replyToMessageId,
+    required this.reactions,
   });
 
   final String localId;
@@ -28,6 +55,8 @@ class RoomMessage {
   final String status;
   final String? encryptionVersion;
   final String? encryptedPayload;
+  final String? replyToMessageId;
+  final List<RoomReaction> reactions;
 
   bool get failed => status == 'failed';
   bool get sending => status == 'sending';
@@ -47,6 +76,8 @@ class RoomMessage {
   factory RoomMessage.fromRow(Map<String, Object?> row) {
     final createdAt = row['created_at'] as String?;
     final editedAt = row['edited_at'] as String?;
+    final rawReactions = row['reactions_json'] as String? ?? '[]';
+    final decodedReactions = jsonDecode(rawReactions) as List<dynamic>;
 
     return RoomMessage(
       localId: row['local_id']! as String,
@@ -64,6 +95,15 @@ class RoomMessage {
       status: row['status'] as String? ?? 'sent',
       encryptionVersion: row['encryption_version'] as String?,
       encryptedPayload: row['encrypted_payload'] as String?,
+      replyToMessageId: row['reply_to_message_id'] as String?,
+      reactions: decodedReactions
+          .map(
+            (item) => RoomReaction.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
+          .where((reaction) => reaction.emoji.isNotEmpty && reaction.count > 0)
+          .toList(growable: false),
     );
   }
 }

@@ -177,6 +177,18 @@ class OfflineSyncEngine {
     }
   }
 
+  Future<void> refreshRecentRoom(RoomRef room) async {
+    if (_disposed) return;
+
+    final cursor = await _transport.currentCursor(room);
+    final recent = await _transport.recentMessages(room);
+    await _store.bootstrapRoom(
+      room,
+      cursor: cursor,
+      recentMessages: recent,
+    );
+  }
+
   Future<void> reconcileRoom(RoomRef room) {
     if (_disposed) return Future<void>.value();
 
