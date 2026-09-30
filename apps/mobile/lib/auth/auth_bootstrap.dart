@@ -9,6 +9,27 @@ import 'auth_transport.dart';
 
 typedef AuthenticatedAppBuilder = Widget Function();
 
+class AuthSessionScope extends InheritedWidget {
+  const AuthSessionScope({
+    required this.controller,
+    required super.child,
+    super.key,
+  });
+
+  final AuthSessionController controller;
+
+  static AuthSessionController of(BuildContext context) {
+    final scope = context.dependOnInheritedWidgetOfExactType<AuthSessionScope>();
+    assert(scope != null, 'AuthSessionScope is missing above this context');
+    return scope!.controller;
+  }
+
+  @override
+  bool updateShouldNotify(AuthSessionScope oldWidget) {
+    return controller != oldWidget.controller;
+  }
+}
+
 class MobileAuthBootstrap extends StatefulWidget {
   const MobileAuthBootstrap({
     required this.authenticatedAppBuilder,
@@ -103,7 +124,10 @@ class _MobileAuthBootstrapState extends State<MobileAuthBootstrap> {
   @override
   Widget build(BuildContext context) {
     if (_authenticated) {
-      return widget.authenticatedAppBuilder();
+      return AuthSessionScope(
+        controller: _controller,
+        child: widget.authenticatedAppBuilder(),
+      );
     }
 
     return MaterialApp(
