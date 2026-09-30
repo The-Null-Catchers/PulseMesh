@@ -8,6 +8,16 @@ import '../inbox/mobile_data_controller.dart';
 import '../inbox/mobile_data_scope.dart';
 import 'room_message.dart';
 
+class RoomScreenArgs {
+  const RoomScreenArgs({
+    required this.title,
+    this.encrypted = false,
+  });
+
+  final String title;
+  final bool encrypted;
+}
+
 class RoomScreen extends StatefulWidget {
   const RoomScreen({
     required this.room,
