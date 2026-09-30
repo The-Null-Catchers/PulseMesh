@@ -110,6 +110,7 @@ class PendingOutgoingMessage {
     required this.encryptionVersion,
     required this.encryptedPayload,
     required this.replyToMessageId,
+    required this.threadRootMessageId,
     required this.attachmentIds,
     required this.attempts,
   });
@@ -120,6 +121,7 @@ class PendingOutgoingMessage {
   final String? encryptionVersion;
   final String? encryptedPayload;
   final String? replyToMessageId;
+  final String? threadRootMessageId;
   final List<String> attachmentIds;
   final int attempts;
 }
