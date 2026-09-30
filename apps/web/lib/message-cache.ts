@@ -80,7 +80,8 @@ export function applyMessageSyncChanges(
   const latestPersisted = [...persisted.values()]
     .sort(
       (left, right) =>
-        new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+        new Date(right.createdAt).getTime() -
+        new Date(left.createdAt).getTime(),
     )
     .slice(0, limit);
 
