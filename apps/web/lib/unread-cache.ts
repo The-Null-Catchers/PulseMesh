@@ -18,7 +18,6 @@ export function clearUnreadCount<T extends UnreadItem>(
   };
 }
 
-
 export type InboxDestination = {
   workspaceId: string | null;
   channelId: string | null;
