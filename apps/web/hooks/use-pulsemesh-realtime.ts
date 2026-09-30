@@ -13,6 +13,7 @@ import {
 import { request, WS_URL } from "../lib/api";
 import { applyMessageSyncChanges } from "../lib/message-cache";
 import { advanceSequence, RecentEventIds } from "../lib/realtime-state";
+import { unreadRefreshTarget } from "../lib/unread-cache";
 import type {
   ActiveCall,
   CallParticipant,
@@ -246,6 +247,38 @@ export function usePulseMeshRealtime({
                 String(nextSequence),
               );
             }
+          }
+
+          if (event.type === "inbox.message") {
+            const refreshTarget = unreadRefreshTarget(
+              {
+                workspaceId:
+                  typeof event.payload?.workspaceId === "string"
+                    ? event.payload.workspaceId
+                    : null,
+                channelId:
+                  typeof event.payload?.channelId === "string"
+                    ? event.payload.channelId
+                    : null,
+                conversationId:
+                  typeof event.payload?.conversationId === "string"
+                    ? event.payload.conversationId
+                    : null,
+              },
+              activeMessageKey,
+              workspaceId,
+            );
+
+            if (refreshTarget === "channels" && workspaceId) {
+              void queryClient.invalidateQueries({
+                queryKey: ["channels", workspaceId],
+              });
+            } else if (refreshTarget === "conversations") {
+              void queryClient.invalidateQueries({
+                queryKey: ["conversations"],
+              });
+            }
+            return;
           }
 
           if (

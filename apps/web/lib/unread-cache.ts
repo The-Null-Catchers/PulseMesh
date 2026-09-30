@@ -3,6 +3,12 @@ type UnreadItem = {
   unread_count: number;
 };
 
+export type InboxDestination = {
+  workspaceId: string | null;
+  channelId: string | null;
+  conversationId: string | null;
+};
+
 export function clearUnreadCount<T extends UnreadItem>(
   current: { items: T[] } | undefined,
   id: string,
@@ -16,4 +22,23 @@ export function clearUnreadCount<T extends UnreadItem>(
         : item,
     ),
   };
+}
+
+export function unreadRefreshTarget(
+  destination: InboxDestination,
+  activeMessageKey: string | null,
+  workspaceId: string | null,
+): "channels" | "conversations" | null {
+  const isInactiveChannel =
+    destination.channelId !== null &&
+    destination.channelId !== activeMessageKey &&
+    destination.workspaceId === workspaceId;
+
+  if (isInactiveChannel) return "channels";
+
+  const isInactiveConversation =
+    destination.conversationId !== null &&
+    destination.conversationId !== activeMessageKey;
+
+  return isInactiveConversation ? "conversations" : null;
 }
