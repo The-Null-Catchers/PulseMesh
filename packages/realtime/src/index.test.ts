@@ -66,6 +66,25 @@ describe("realtime contracts", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts user-scoped inbox message events without message content", () => {
+    const result = realtimeEventSchema.safeParse({
+      id: "67d4e381-a0df-4d82-9177-cb1daa78bd74",
+      type: "inbox.message",
+      room: "user:78119f40-5b7e-48fa-a6da-d4d19d2cba45",
+      occurredAt: new Date().toISOString(),
+      sequence: 10,
+      payload: {
+        messageId: "f113742e-2534-443e-8353-34382100dfdf",
+        channelId: "54285544-0c19-4c53-838d-27a1155c461b",
+        conversationId: null,
+        senderId: "5d9ad22f-b7dc-4b4c-9a31-cfe8f17fc5a4",
+        createdAt: new Date().toISOString(),
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it("supports attachment IDs on created messages", () => {
     const result = realtimeEventSchema.safeParse({
       id: "67d4e381-a0df-4d82-9177-cb1daa78bd74",
