@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pulsemesh/auth/auth_models.dart';
 import 'package:pulsemesh/auth/auth_session_controller.dart';
@@ -106,6 +108,32 @@ void main() {
       expect(store.refreshToken, 'refresh-login');
       expect(await controller.accessToken(), 'access-login');
       expect(controller.isAuthenticated, isTrue);
+    });
+
+
+    test('exposes the authenticated user id from access token claims', () async {
+      final store = FakeAuthSessionStore();
+      final transport = FakeAuthTransport();
+      final payload = base64Url
+          .encode(utf8.encode(jsonEncode({'sub': 'user-123'})))
+          .replaceAll('=', '');
+      transport.loginTokens = AuthTokens(
+        accessToken: 'header.$payload.signature',
+        refreshToken: 'refresh-login',
+      );
+      final controller = AuthSessionController(
+        transport: transport,
+        store: store,
+      );
+
+      await controller.login(
+        const LoginCredentials(
+          email: 'user@example.com',
+          password: 'password-password',
+        ),
+      );
+
+      expect(controller.currentUserId, 'user-123');
     });
 
     test('unauthorized restore clears an unusable refresh token', () async {
