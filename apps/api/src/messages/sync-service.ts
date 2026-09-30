@@ -41,6 +41,7 @@ export async function syncMessageChanges(input: {
       m.encryption_version,
       m.encrypted_payload,
       m.reply_to_message_id,
+      m.thread_root_message_id,
       m.created_at,
       m.edited_at,
       m.deleted_at,
