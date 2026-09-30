@@ -310,9 +310,13 @@ class _RoomScreenState extends State<RoomScreen> {
                     separatorBuilder: (_, _) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
                       final emoji = quickReactions[index];
-                      final existing = message.reactions
-                          .where((reaction) => reaction.emoji == emoji)
-                          .firstOrNull;
+                      RoomReaction? existing;
+                      for (final reaction in message.reactions) {
+                        if (reaction.emoji == emoji) {
+                          existing = reaction;
+                          break;
+                        }
+                      }
                       return ActionChip(
                         label: Text(
                           existing == null
