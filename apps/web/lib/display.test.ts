@@ -9,6 +9,7 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
     name: null,
     avatar_url: null,
     encryption_mode: "none",
+    unread_count: 0,
     members: [
       {
         id: "self",
