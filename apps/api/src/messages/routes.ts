@@ -12,6 +12,7 @@ import { AppError } from "../errors.js";
 import { publishRealtime } from "../realtime/bus.js";
 import { attachReadyFiles } from "./attachments.js";
 import { createMentionNotifications } from "./mentions.js";
+import { publishInboxMessageEvents } from "./inbox-events.js";
 import { enforceWorkspaceMessagePolicy } from "../moderation/anti-spam.js";
 import { channelWorkspaceId } from "../moderation/service.js";
 import { messagesCreated } from "../observability/metrics.js";
@@ -200,6 +201,20 @@ export async function messageRoutes(app: FastifyInstance): Promise<void> {
       };
 
       await publishRealtime(event);
+      try {
+        await publishInboxMessageEvents({
+          messageId: created.message.id,
+          senderUserId: userId,
+          channelId: params.channelId,
+          conversationId: null,
+          createdAt: created.message.created_at,
+        });
+      } catch (error) {
+        app.log.error(
+          { err: error, messageId: created.message.id },
+          "inbox realtime fanout failed",
+        );
+      }
       messagesCreated.inc({ destination: "channel" });
       return reply.code(201).send(event.payload);
     },

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { RealtimeEvent } from "@pulsemesh/realtime";
@@ -12,6 +12,7 @@ import {
 } from "../authorization/service.js";
 import { publishRealtime } from "../realtime/bus.js";
 import { createMentionNotifications } from "./mentions.js";
+import { publishInboxMessageEvents } from "./inbox-events.js";
 
 type MessageLocation = {
   id: string;
@@ -70,15 +71,18 @@ async function assertConversationAdmin(
   }
 }
 
-async function publishCreatedMessage(input: {
-  messageId: string;
-  senderUserId: string;
-  body: string;
-  clientMessageId: string | null;
-  createdAt: Date;
-  channelId: string | null;
-  conversationId: string | null;
-}): Promise<void> {
+async function publishCreatedMessage(
+  log: FastifyBaseLogger,
+  input: {
+    messageId: string;
+    senderUserId: string;
+    body: string;
+    clientMessageId: string | null;
+    createdAt: Date;
+    channelId: string | null;
+    conversationId: string | null;
+  },
+): Promise<void> {
   const room = input.channelId
     ? "channel:" + input.channelId
     : "conversation:" + input.conversationId;
@@ -100,6 +104,20 @@ async function publishCreatedMessage(input: {
   };
 
   await publishRealtime(event);
+  try {
+    await publishInboxMessageEvents({
+      messageId: input.messageId,
+      senderUserId: input.senderUserId,
+      channelId: input.channelId,
+      conversationId: input.conversationId,
+      createdAt: input.createdAt,
+    });
+  } catch (error) {
+    log.error(
+      { err: error, messageId: input.messageId },
+      "inbox realtime fanout failed",
+    );
+  }
 }
 
 export async function coreMessagingRoutes(app: FastifyInstance): Promise<void> {
@@ -188,7 +206,7 @@ export async function coreMessagingRoutes(app: FastifyInstance): Promise<void> {
           : {}),
       });
 
-      await publishCreatedMessage({
+      await publishCreatedMessage(app.log, {
         messageId: message.id,
         senderUserId: userId,
         body: body.body,
@@ -272,7 +290,7 @@ export async function coreMessagingRoutes(app: FastifyInstance): Promise<void> {
       const forwarded = result.rows[0];
       if (!forwarded) throw new Error("Forward failed");
 
-      await publishCreatedMessage({
+      await publishCreatedMessage(app.log, {
         messageId: forwarded.id,
         senderUserId: userId,
         body: source.body,

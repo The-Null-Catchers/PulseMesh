@@ -20,6 +20,12 @@ Committed state changes are published through Redis Pub/Sub. Every API replica c
 
 PostgreSQL remains the durable source of truth. Redis is coordination and short-lived recovery infrastructure only.
 
+## User inbox signals
+
+Every authenticated socket is implicitly subscribed to its private `user:<id>` room. Message creation publishes a lightweight `inbox.message` signal to authorized recipients on that private room, including the destination ID, message ID, sender ID, and server timestamp but not message content.
+
+This lets clients refresh unread summaries for inactive channels and conversations without subscribing to every destination room. Inbox signals are recoverable through the same bounded Redis replay mechanism, while unread counts remain authoritative in PostgreSQL through `read_states`.
+
 ## Session recovery
 
 Published events are also kept in a bounded per-room Redis sorted set for 15 minutes. The sequence is the score.
