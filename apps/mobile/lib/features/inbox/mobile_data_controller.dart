@@ -271,6 +271,7 @@ class MobileDataController extends ChangeNotifier {
         'id': channel.id,
         'name': channel.name,
         'unread_count': channel.unreadCount,
+        'kind': channel.kind,
         'visibility': channel.visibility,
         'position': channel.position,
       };
