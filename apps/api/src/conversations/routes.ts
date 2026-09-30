@@ -9,6 +9,7 @@ import { canAccessConversation } from "../authorization/service.js";
 import { publishRealtime } from "../realtime/bus.js";
 import { attachReadyFiles } from "../messages/attachments.js";
 import { createMentionNotifications } from "../messages/mentions.js";
+import { publishInboxMessageEvents } from "../messages/inbox-events.js";
 import { messagesCreated } from "../observability/metrics.js";
 
 type ConversationMessageRow = {
@@ -411,6 +412,13 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       };
 
       await publishRealtime(event);
+      await publishInboxMessageEvents({
+        messageId: created.message.id,
+        senderUserId: userId,
+        channelId: null,
+        conversationId: params.conversationId,
+        createdAt: created.message.created_at,
+      });
       messagesCreated.inc({ destination: "conversation" });
       return reply.code(201).send(event.payload);
     },
