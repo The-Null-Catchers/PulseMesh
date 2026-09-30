@@ -68,13 +68,21 @@ export function applyMessageSyncChanges(
       }
     }
 
-    persisted.set(change.messageId, {
-      ...persisted.get(change.messageId),
+    const existing = persisted.get(change.messageId);
+    const nextMessage: Message = {
+      ...existing,
       ...message,
-      reactions: message.reactions ?? persisted.get(change.messageId)?.reactions,
       optimistic: false,
       failed: false,
-    });
+    };
+
+    if (message.reactions !== undefined) {
+      nextMessage.reactions = message.reactions;
+    } else if (existing?.reactions !== undefined) {
+      nextMessage.reactions = existing.reactions;
+    }
+
+    persisted.set(change.messageId, nextMessage);
   }
 
   const latestPersisted = [...persisted.values()]
