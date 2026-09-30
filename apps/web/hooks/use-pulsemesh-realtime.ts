@@ -11,8 +11,16 @@ import {
   useState,
 } from "react";
 import { request, WS_URL } from "../lib/api";
+import { applyMessageSyncChanges } from "../lib/message-cache";
 import { advanceSequence, RecentEventIds } from "../lib/realtime-state";
-import type { ActiveCall, CallParticipant, PresenceMember } from "../lib/types";
+import type {
+  ActiveCall,
+  CallParticipant,
+  Message,
+  MessageSyncPage,
+  Page,
+  PresenceMember,
+} from "../lib/types";
 
 type SocketState = "connecting" | "ready" | "reconnecting";
 
@@ -73,6 +81,74 @@ export function usePulseMeshRealtime({
     if (!activeRoom || !activeMessageKey) return;
 
     let cancelled = false;
+
+    const syncBase = activeRoom.startsWith("channel:")
+      ? `/channels/${activeMessageKey}/messages`
+      : `/conversations/${activeMessageKey}/messages`;
+
+    const hydrateLatestMessages = async () => {
+      const latest = await request<Page<Message>>(
+        `${syncBase}?limit=50`,
+        token,
+      );
+
+      if (cancelled) return;
+
+      queryClient.setQueryData<Page<Message>>(
+        ["messages", activeMessageKey],
+        (current) =>
+          applyMessageSyncChanges(
+            current,
+            latest.items.map((message) => ({
+              type: "upsert" as const,
+              messageId: message.id,
+              message,
+            })),
+          ),
+      );
+    };
+
+    const reconcileMessages = async () => {
+      const destination = `${syncBase}/sync`;
+      const storageKey = `pulsemesh:message-sync:${activeRoom}`;
+      let after = sessionStorage.getItem(storageKey) ?? "0";
+
+      try {
+        while (!cancelled) {
+          const page = await request<MessageSyncPage>(
+            `${destination}?after=${encodeURIComponent(after)}&limit=250`,
+            token,
+          );
+
+          if (cancelled) return;
+
+          if (page.changes.length > 0) {
+            queryClient.setQueryData<Page<Message>>(
+              ["messages", activeMessageKey],
+              (current) => applyMessageSyncChanges(current, page.changes),
+            );
+          }
+
+          const previousAfter = after;
+          after = page.nextAfter;
+          sessionStorage.setItem(storageKey, after);
+
+          if (!page.hasMore || after === previousAfter) {
+            break;
+          }
+        }
+
+        await hydrateLatestMessages();
+      } catch {
+        if (!cancelled) {
+          void hydrateLatestMessages().catch(() => {
+            void queryClient.invalidateQueries({
+              queryKey: ["messages", activeMessageKey],
+            });
+          });
+        }
+      }
+    };
 
     const connect = async () => {
       setSocketState(
@@ -141,9 +217,7 @@ export function usePulseMeshRealtime({
             setSocketState("ready");
 
             if (event.truncated) {
-              void queryClient.invalidateQueries({
-                queryKey: ["messages", activeMessageKey],
-              });
+              void reconcileMessages();
             }
             return;
           }

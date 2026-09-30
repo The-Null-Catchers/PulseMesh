@@ -176,3 +176,23 @@ export type Page<T> = {
   items: T[];
   nextCursor: string | null;
 };
+
+export type MessageSyncChange =
+  | {
+      cursor: string;
+      type: "upsert";
+      messageId: string;
+      message: Message;
+    }
+  | {
+      cursor: string;
+      type: "delete";
+      messageId: string;
+      message: null;
+    };
+
+export type MessageSyncPage = {
+  changes: MessageSyncChange[];
+  nextAfter: string;
+  hasMore: boolean;
+};
