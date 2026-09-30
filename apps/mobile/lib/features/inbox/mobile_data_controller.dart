@@ -273,6 +273,8 @@ class MobileDataController extends ChangeNotifier {
       scope: scope,
     );
 
+    await _store.deleteCachedMessage(messageId);
+
     if (scope == 'self') {
       await _syncEngine.refreshRecentRoom(room);
     } else {
