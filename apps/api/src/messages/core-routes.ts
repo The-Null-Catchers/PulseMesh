@@ -12,6 +12,7 @@ import {
 } from "../authorization/service.js";
 import { publishRealtime } from "../realtime/bus.js";
 import { createMentionNotifications } from "./mentions.js";
+import { publishInboxMessageEvents } from "./inbox-events.js";
 
 type MessageLocation = {
   id: string;
@@ -100,6 +101,13 @@ async function publishCreatedMessage(input: {
   };
 
   await publishRealtime(event);
+  await publishInboxMessageEvents({
+    messageId: input.messageId,
+    senderUserId: input.senderUserId,
+    channelId: input.channelId,
+    conversationId: input.conversationId,
+    createdAt: input.createdAt,
+  });
 }
 
 export async function coreMessagingRoutes(app: FastifyInstance): Promise<void> {
