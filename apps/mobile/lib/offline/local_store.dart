@@ -377,6 +377,15 @@ class LocalMessageStore {
     });
   }
 
+  Future<void> deleteCachedMessage(String serverMessageId) async {
+    final db = await _database;
+    await db.delete(
+      'cached_messages',
+      where: 'server_id=?',
+      whereArgs: [serverMessageId],
+    );
+  }
+
   Future<void> retryFailed(String clientMessageId) async {
     final db = await _database;
     final now = DateTime.now().toUtc().toIso8601String();
