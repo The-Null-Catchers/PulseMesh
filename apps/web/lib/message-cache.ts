@@ -70,7 +70,10 @@ export function applyMessageSyncChanges(
     }
 
     persisted.set(change.messageId, {
+      ...persisted.get(change.messageId),
       ...message,
+      reactions:
+        message.reactions ?? persisted.get(change.messageId)?.reactions,
       optimistic: false,
       failed: false,
     });
