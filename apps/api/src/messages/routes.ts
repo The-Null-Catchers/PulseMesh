@@ -201,13 +201,20 @@ export async function messageRoutes(app: FastifyInstance): Promise<void> {
       };
 
       await publishRealtime(event);
-      await publishInboxMessageEvents({
-        messageId: created.message.id,
-        senderUserId: userId,
-        channelId: params.channelId,
-        conversationId: null,
-        createdAt: created.message.created_at,
-      });
+      try {
+        await publishInboxMessageEvents({
+          messageId: created.message.id,
+          senderUserId: userId,
+          channelId: params.channelId,
+          conversationId: null,
+          createdAt: created.message.created_at,
+        });
+      } catch (error) {
+        app.log.error(
+          { err: error, messageId: created.message.id },
+          "inbox realtime fanout failed",
+        );
+      }
       messagesCreated.inc({ destination: "channel" });
       return reply.code(201).send(event.payload);
     },
