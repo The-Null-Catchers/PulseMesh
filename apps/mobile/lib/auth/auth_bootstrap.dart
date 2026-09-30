@@ -7,7 +7,9 @@ import 'auth_session_controller.dart';
 import 'auth_session_store.dart';
 import 'auth_transport.dart';
 
-typedef AuthenticatedAppBuilder = Widget Function(\n  AuthSessionController controller,\n);
+typedef AuthenticatedAppBuilder = Widget Function(
+  AuthSessionController controller,
+);
 
 class MobileAuthBootstrap extends StatefulWidget {
   const MobileAuthBootstrap({
