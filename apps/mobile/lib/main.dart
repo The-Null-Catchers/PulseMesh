@@ -10,6 +10,9 @@ import 'config/app_config.dart';
 import 'features/inbox/inbox_models.dart';
 import 'features/inbox/inbox_realtime.dart';
 import 'features/inbox/mobile_data_controller.dart';
+import 'features/inbox/mobile_data_scope.dart';
+import 'features/messages/room_screen.dart';
+import 'offline/models.dart';
 import 'theme/app_theme.dart';
 
 void main() {
@@ -70,21 +73,6 @@ class _PulseMeshAuthenticatedRootState
   }
 }
 
-class MobileDataScope extends InheritedNotifier<MobileDataController> {
-  const MobileDataScope({
-    required MobileDataController controller,
-    required super.child,
-    super.key,
-  }) : super(notifier: controller);
-
-  static MobileDataController of(BuildContext context) {
-    final scope =
-        context.dependOnInheritedWidgetOfExactType<MobileDataScope>();
-    assert(scope != null, 'MobileDataScope is missing above this context');
-    return scope!.notifier!;
-  }
-}
-
 final router = GoRouter(
   initialLocation: '/home',
   routes: [
@@ -102,6 +90,24 @@ final router = GoRouter(
           builder: (_, _) => const PlaceholderScreen(title: 'Profile'),
         ),
       ],
+    ),
+    GoRoute(
+      path: '/room/:kind/:id',
+      builder: (context, state) {
+        final kind = state.pathParameters['kind'];
+        final id = state.pathParameters['id']!;
+        final roomKind =
+            kind == 'channel' ? RoomKind.channel : RoomKind.conversation;
+        final args = state.extra is RoomScreenArgs
+            ? state.extra! as RoomScreenArgs
+            : const RoomScreenArgs(title: 'Conversation');
+
+        return RoomScreen(
+          room: RoomRef(kind: roomKind, id: id),
+          title: args.title,
+          encrypted: args.encrypted,
+        );
+      },
     ),
   ],
 );
@@ -546,6 +552,12 @@ class _ChannelTile extends StatelessWidget {
                 ),
               )
             : const Icon(Icons.chevron_right_rounded),
+        onTap: () {
+          context.push(
+            '/room/channel/${channel.id}',
+            extra: RoomScreenArgs(title: '#${channel.name}'),
+          );
+        },
       ),
     );
   }
@@ -638,6 +650,15 @@ class _ConversationTile extends StatelessWidget {
                 ),
               )
             : const Icon(Icons.chevron_right_rounded),
+        onTap: () {
+          context.push(
+            '/room/conversation/${conversation.id}',
+            extra: RoomScreenArgs(
+              title: title,
+              encrypted: conversation.encryptionMode != 'none',
+            ),
+          );
+        },
       ),
     );
   }

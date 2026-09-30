@@ -5,6 +5,10 @@ import 'package:flutter/foundation.dart';
 import '../../auth/auth_session_controller.dart';
 import '../../config/app_config.dart';
 import '../../offline/local_store.dart';
+import '../../offline/models.dart';
+import '../../offline/sync_engine.dart';
+import '../../offline/sync_transport.dart';
+import '../messages/room_message.dart';
 import '../workspaces/workspace_models.dart';
 import '../workspaces/workspace_transport.dart';
 import 'inbox_models.dart';
@@ -18,11 +22,16 @@ class MobileDataController extends ChangeNotifier {
     required LocalMessageStore localStore,
     required WorkspaceTransport workspaceTransport,
     required InboxTransport inboxTransport,
+    required MessageSyncTransport messageSyncTransport,
   })  : _authSession = authSession,
         _config = config,
         _store = localStore,
         _workspaceTransport = workspaceTransport,
-        _inboxTransport = inboxTransport;
+        _inboxTransport = inboxTransport,
+        _syncEngine = OfflineSyncEngine(
+          store: localStore,
+          transport: messageSyncTransport,
+        );
 
   factory MobileDataController.live({
     required AuthSessionController authSession,
@@ -42,6 +51,10 @@ class MobileDataController extends ChangeNotifier {
         baseUrl: config.apiBaseUrl,
         accessToken: authSession.accessToken,
       ),
+      messageSyncTransport: DioMessageSyncTransport(
+        baseUrl: config.apiBaseUrl,
+        accessToken: authSession.accessToken,
+      ),
     );
   }
 
@@ -50,6 +63,8 @@ class MobileDataController extends ChangeNotifier {
   final LocalMessageStore _store;
   final WorkspaceTransport _workspaceTransport;
   final InboxTransport _inboxTransport;
+  final OfflineSyncEngine _syncEngine;
+  final Set<RoomRef> _openRooms = <RoomRef>{};
 
   List<WorkspaceSummary> _workspaces = const [];
   InboxSnapshot _inbox = const InboxSnapshot(
@@ -84,6 +99,7 @@ class MobileDataController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
+    await _syncEngine.start();
     await _loadCached();
     _notify();
 
@@ -150,6 +166,63 @@ class MobileDataController extends ChangeNotifier {
 
     _offline = false;
     _error = null;
+    _notify();
+  }
+
+  Future<List<RoomMessage>> roomMessages(
+    RoomRef room, {
+    int limit = 100,
+  }) async {
+    final rows = await _store.messagesForRoom(room, limit: limit);
+    return rows.map(RoomMessage.fromRow).toList(growable: false);
+  }
+
+  Future<void> openRoom(RoomRef room) async {
+    if (_disposed) return;
+    _openRooms.add(room);
+    _syncEngine.watchRoom(room);
+    _realtime?.watchRoom(room);
+    await refreshRoom(room);
+    await _markRoomReadBestEffort(room);
+  }
+
+  void closeRoom(RoomRef room) {
+    _openRooms.remove(room);
+    _syncEngine.unwatchRoom(room);
+    _realtime?.unwatchRoom(room);
+  }
+
+  Future<void> refreshRoom(RoomRef room) async {
+    if (_disposed) return;
+
+    try {
+      await _syncEngine.reconcileRoom(room);
+      _offline = false;
+      _error = null;
+    } catch (error) {
+      _offline = true;
+      _error = error;
+    } finally {
+      _notify();
+    }
+  }
+
+  Future<String> sendRoomMessage(RoomRef room, String body) async {
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(body, 'body', 'Message cannot be empty');
+    }
+
+    final clientMessageId = await _syncEngine.enqueueMessage(
+      room: room,
+      body: trimmed,
+    );
+    _notify();
+    return clientMessageId;
+  }
+
+  Future<void> retryRoomMessage(String clientMessageId) async {
+    await _syncEngine.retryFailed(clientMessageId);
     _notify();
   }
 
@@ -246,6 +319,7 @@ class MobileDataController extends ChangeNotifier {
       ),
       localStore: _store,
       onInboxDirty: _refreshInboxBestEffort,
+      onRoomDirty: _reconcileRoomBestEffort,
       onStateChanged: (state) {
         if (_disposed) return;
         _realtimeState = state;
@@ -253,7 +327,84 @@ class MobileDataController extends ChangeNotifier {
       },
     );
     _realtime = bridge;
+    for (final room in _openRooms) {
+      bridge.watchRoom(room);
+    }
     await bridge.start();
+  }
+
+  Future<void> _markRoomReadBestEffort(RoomRef room) async {
+    try {
+      final rows = await _store.messagesForRoom(room, limit: 1);
+      if (rows.isEmpty) return;
+
+      final lastReadMessageId = rows.first['server_id'] as String?;
+      if (lastReadMessageId == null) return;
+
+      if (room.kind == RoomKind.channel) {
+        await _inboxTransport.markChannelRead(
+          channelId: room.id,
+          lastReadMessageId: lastReadMessageId,
+        );
+        _inbox = InboxSnapshot(
+          channels: _inbox.channels
+              .map(
+                (channel) => channel.id == room.id
+                    ? ChannelSummary(
+                        id: channel.id,
+                        name: channel.name,
+                        unreadCount: 0,
+                        kind: channel.kind,
+                        visibility: channel.visibility,
+                        position: channel.position,
+                      )
+                    : channel,
+              )
+              .toList(growable: false),
+          conversations: _inbox.conversations,
+        );
+      } else {
+        await _inboxTransport.markConversationRead(
+          conversationId: room.id,
+          lastReadMessageId: lastReadMessageId,
+        );
+        _inbox = InboxSnapshot(
+          channels: _inbox.channels,
+          conversations: _inbox.conversations
+              .map(
+                (conversation) => conversation.id == room.id
+                    ? ConversationSummary(
+                        id: conversation.id,
+                        kind: conversation.kind,
+                        name: conversation.name,
+                        avatarUrl: conversation.avatarUrl,
+                        encryptionMode: conversation.encryptionMode,
+                        unreadCount: 0,
+                        members: conversation.members,
+                      )
+                    : conversation,
+              )
+              .toList(growable: false),
+        );
+      }
+      _notify();
+    } catch (_) {
+      // Read receipts are best-effort and must never block opening a room.
+    }
+  }
+
+  Future<void> _reconcileRoomBestEffort(RoomRef room) async {
+    try {
+      await _syncEngine.reconcileRoom(room);
+      _offline = false;
+      _error = null;
+      _notify();
+    } catch (error) {
+      if (_disposed) return;
+      _offline = true;
+      _error = error;
+      _notify();
+    }
   }
 
   Future<void> _refreshInboxBestEffort() async {
@@ -310,6 +461,7 @@ class MobileDataController extends ChangeNotifier {
     if (realtime != null) {
       unawaited(realtime.stop());
     }
+    unawaited(_syncEngine.dispose());
     unawaited(_store.close());
     super.dispose();
   }

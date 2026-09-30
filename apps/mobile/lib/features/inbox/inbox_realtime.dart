@@ -5,9 +5,11 @@ import 'package:dio/dio.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../offline/local_store.dart';
+import '../../offline/models.dart';
 
 typedef MobileAccessTokenProvider = Future<String?> Function();
 typedef InboxDirtyCallback = Future<void> Function();
+typedef RoomDirtyCallback = Future<void> Function(RoomRef room);
 
 enum MobileRealtimeState { disconnected, connecting, ready, reconnecting }
 
@@ -96,6 +98,7 @@ class MobileInboxRealtimeBridge {
     required DioRealtimeTicketProvider ticketProvider,
     required LocalMessageStore localStore,
     required InboxDirtyCallback onInboxDirty,
+    this.onRoomDirty,
     this.onStateChanged,
     this.inboxDebounce = const Duration(milliseconds: 250),
   })  : _ticketProvider = ticketProvider,
@@ -106,8 +109,11 @@ class MobileInboxRealtimeBridge {
   final DioRealtimeTicketProvider _ticketProvider;
   final LocalMessageStore _localStore;
   final InboxDirtyCallback _onInboxDirty;
+  final RoomDirtyCallback? onRoomDirty;
   final void Function(MobileRealtimeState state)? onStateChanged;
   final Duration inboxDebounce;
+
+  final Set<RoomRef> _rooms = <RoomRef>{};
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
@@ -117,6 +123,7 @@ class MobileInboxRealtimeBridge {
   bool _stopped = true;
   int _reconnectAttempt = 0;
   int _lastSequence = 0;
+  RoomRef? _activeRoom;
   MobileRealtimeState _state = MobileRealtimeState.disconnected;
 
   MobileRealtimeState get state => _state;
@@ -128,8 +135,35 @@ class MobileInboxRealtimeBridge {
     await _connect();
   }
 
+  void watchRoom(RoomRef room) {
+    _rooms.add(room);
+    _activeRoom = room;
+
+    if (_state == MobileRealtimeState.ready) {
+      _send({'type': 'room.subscribe', 'room': room.cacheKey});
+      _send({'type': 'view.active', 'room': room.cacheKey});
+    }
+  }
+
+  void unwatchRoom(RoomRef room) {
+    _rooms.remove(room);
+
+    if (_state == MobileRealtimeState.ready) {
+      _send({'type': 'room.unsubscribe', 'room': room.cacheKey});
+    }
+
+    if (_activeRoom == room) {
+      _activeRoom = null;
+      if (_state == MobileRealtimeState.ready) {
+        _send(const {'type': 'view.active', 'room': null});
+      }
+    }
+  }
+
   Future<void> stop() async {
     _stopped = true;
+    _rooms.clear();
+    _activeRoom = null;
     _retryTimer?.cancel();
     _retryTimer = null;
     _heartbeatTimer?.cancel();
@@ -205,7 +239,7 @@ class MobileInboxRealtimeBridge {
       _send({
         'type': 'session.resume',
         'lastSequence': _lastSequence,
-        'rooms': const <String>[],
+        'rooms': _rooms.map((room) => room.cacheKey).toList(growable: false),
       });
       return;
     }
@@ -215,8 +249,19 @@ class MobileInboxRealtimeBridge {
       _setState(MobileRealtimeState.ready);
       _startHeartbeat();
 
+      final activeRoom = _activeRoom;
+      if (activeRoom != null) {
+        _send({'type': 'view.active', 'room': activeRoom.cacheKey});
+      }
+
       if (event['truncated'] == true) {
         _scheduleInboxRefresh();
+        final roomCallback = onRoomDirty;
+        if (roomCallback != null) {
+          for (final room in _rooms) {
+            unawaited(roomCallback(room));
+          }
+        }
       }
       return;
     }
@@ -230,6 +275,14 @@ class MobileInboxRealtimeBridge {
       }
     }
 
+    if (_isRoomMutation(type)) {
+      final room = _roomFromRealtimeName(event['room']);
+      final roomCallback = onRoomDirty;
+      if (room != null && _rooms.contains(room) && roomCallback != null) {
+        unawaited(roomCallback(room));
+      }
+    }
+
     final nextSequence = advanceRealtimeSequence(
       _lastSequence,
       event['sequence'],
@@ -238,6 +291,29 @@ class MobileInboxRealtimeBridge {
       _lastSequence = nextSequence;
       unawaited(_localStore.writeRealtimeSequence(nextSequence));
     }
+  }
+
+  bool _isRoomMutation(Object? type) {
+    return type == 'message.created' ||
+        type == 'message.updated' ||
+        type == 'message.deleted' ||
+        type == 'reaction.created' ||
+        type == 'reaction.deleted';
+  }
+
+  RoomRef? _roomFromRealtimeName(Object? value) {
+    if (value is! String) return null;
+    final separator = value.indexOf(':');
+    if (separator <= 0 || separator == value.length - 1) return null;
+
+    final kind = value.substring(0, separator);
+    final id = value.substring(separator + 1);
+
+    return switch (kind) {
+      'channel' => RoomRef(kind: RoomKind.channel, id: id),
+      'conversation' => RoomRef(kind: RoomKind.conversation, id: id),
+      _ => null,
+    };
   }
 
   void _send(Map<String, dynamic> message) {

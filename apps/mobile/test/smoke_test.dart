@@ -8,10 +8,13 @@ import 'package:pulsemesh/config/app_config.dart';
 import 'package:pulsemesh/features/inbox/inbox_models.dart';
 import 'package:pulsemesh/features/inbox/inbox_transport.dart';
 import 'package:pulsemesh/features/inbox/mobile_data_controller.dart';
+import 'package:pulsemesh/features/inbox/mobile_data_scope.dart';
 import 'package:pulsemesh/features/workspaces/workspace_models.dart';
 import 'package:pulsemesh/features/workspaces/workspace_transport.dart';
 import 'package:pulsemesh/main.dart';
 import 'package:pulsemesh/offline/local_store.dart';
+import 'package:pulsemesh/offline/models.dart';
+import 'package:pulsemesh/offline/sync_transport.dart';
 
 class EmptyWorkspaceTransport implements WorkspaceTransport {
   @override
@@ -36,6 +39,31 @@ class EmptyInboxTransport implements InboxTransport {
     required String conversationId,
     required String lastReadMessageId,
   }) async {}
+}
+
+class EmptyMessageSyncTransport implements MessageSyncTransport {
+  @override
+  Future<String> currentCursor(RoomRef room) async => '0';
+
+  @override
+  Future<List<Map<String, dynamic>>> recentMessages(
+    RoomRef room, {
+    int limit = 50,
+  }) async =>
+      const [];
+
+  @override
+  Future<SendAcknowledgement> send(PendingOutgoingMessage message) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SyncPage> sync(
+    RoomRef room, {
+    required String after,
+    int limit = 100,
+  }) async =>
+      const SyncPage(changes: [], nextAfter: '0', hasMore: false);
 }
 
 class EmptyAuthStore implements AuthSessionStore {
@@ -84,6 +112,7 @@ void main() {
       localStore: LocalMessageStore(databaseName: 'pulsemesh_smoke_test'),
       workspaceTransport: EmptyWorkspaceTransport(),
       inboxTransport: EmptyInboxTransport(),
+      messageSyncTransport: EmptyMessageSyncTransport(),
     );
     addTearDown(data.dispose);
 
