@@ -183,6 +183,7 @@ class MobileDataController extends ChangeNotifier {
     _syncEngine.watchRoom(room);
     _realtime?.watchRoom(room);
     await refreshRoom(room);
+    await _markRoomReadBestEffort(room);
   }
 
   void closeRoom(RoomRef room) {
@@ -330,6 +331,66 @@ class MobileDataController extends ChangeNotifier {
       bridge.watchRoom(room);
     }
     await bridge.start();
+  }
+
+  Future<void> _markRoomReadBestEffort(RoomRef room) async {
+    try {
+      final rows = await _store.messagesForRoom(room, limit: 1);
+      if (rows.isEmpty) return;
+
+      final lastReadMessageId = rows.first['server_id'] as String?;
+      if (lastReadMessageId == null) return;
+
+      if (room.kind == RoomKind.channel) {
+        await _inboxTransport.markChannelRead(
+          channelId: room.id,
+          lastReadMessageId: lastReadMessageId,
+        );
+        _inbox = InboxSnapshot(
+          channels: _inbox.channels
+              .map(
+                (channel) => channel.id == room.id
+                    ? ChannelSummary(
+                        id: channel.id,
+                        name: channel.name,
+                        unreadCount: 0,
+                        kind: channel.kind,
+                        visibility: channel.visibility,
+                        position: channel.position,
+                      )
+                    : channel,
+              )
+              .toList(growable: false),
+          conversations: _inbox.conversations,
+        );
+      } else {
+        await _inboxTransport.markConversationRead(
+          conversationId: room.id,
+          lastReadMessageId: lastReadMessageId,
+        );
+        _inbox = InboxSnapshot(
+          channels: _inbox.channels,
+          conversations: _inbox.conversations
+              .map(
+                (conversation) => conversation.id == room.id
+                    ? ConversationSummary(
+                        id: conversation.id,
+                        kind: conversation.kind,
+                        name: conversation.name,
+                        avatarUrl: conversation.avatarUrl,
+                        encryptionMode: conversation.encryptionMode,
+                        unreadCount: 0,
+                        members: conversation.members,
+                      )
+                    : conversation,
+              )
+              .toList(growable: false),
+        );
+      }
+      _notify();
+    } catch (_) {
+      // Read receipts are best-effort and must never block opening a room.
+    }
   }
 
   Future<void> _reconcileRoomBestEffort(RoomRef room) async {
