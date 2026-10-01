@@ -97,11 +97,16 @@ class ActiveCall {
 abstract interface class CallTransport {
   Future<List<Map<String, dynamic>>> iceServers();
   Future<ActiveCall> startVoiceCall(String channelId);
+  Future<ActiveCall> startConversationCall(
+    String conversationId, {
+    required String kind,
+  });
   Future<ActiveCall> refreshCall(String callId);
   Future<CallParticipant> updateParticipant(
     String callId, {
     bool? muted,
     bool? deafened,
+    bool? cameraEnabled,
     String? connectionState,
   });
   Future<void> leave(String callId);
@@ -158,6 +163,20 @@ class DioCallTransport implements CallTransport {
   }
 
   @override
+  @override
+  Future<ActiveCall> startConversationCall(
+    String conversationId, {
+    required String kind,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/calls',
+      data: {'conversationId': conversationId, 'kind': kind},
+      options: await _options(),
+    );
+    return ActiveCall.fromJson(response.data ?? const {});
+  }
+
+  @override
   Future<ActiveCall> refreshCall(String callId) async {
     final response = await _dio.get<Map<String, dynamic>>(
       '/calls/$callId',
@@ -171,11 +190,13 @@ class DioCallTransport implements CallTransport {
     String callId, {
     bool? muted,
     bool? deafened,
+    bool? cameraEnabled,
     String? connectionState,
   }) async {
     final patch = <String, dynamic>{};
     if (muted != null) patch['muted'] = muted;
     if (deafened != null) patch['deafened'] = deafened;
+    if (cameraEnabled != null) patch['cameraEnabled'] = cameraEnabled;
     if (connectionState != null) {
       patch['connectionState'] = connectionState;
     }

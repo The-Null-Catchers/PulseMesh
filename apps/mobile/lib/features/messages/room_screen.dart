@@ -6,6 +6,7 @@ import 'package:mime/mime.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../offline/models.dart';
+import '../calls/video_call_screen.dart';
 import '../inbox/inbox_realtime.dart';
 import '../inbox/mobile_data_controller.dart';
 import '../inbox/mobile_data_scope.dart';
@@ -869,6 +870,21 @@ class _RoomScreenState extends State<RoomScreen> {
           ],
         ),
         actions: [
+          if (widget.room.kind == RoomKind.conversation)
+            IconButton(
+              tooltip: 'Start video call',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => VideoCallScreen(
+                      conversationId: widget.room.id,
+                      title: widget.title,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.videocam_outlined),
+            ),
           IconButton(
             tooltip: 'Refresh',
             onPressed: () async {
