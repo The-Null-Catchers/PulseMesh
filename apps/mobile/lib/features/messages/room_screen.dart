@@ -106,28 +106,28 @@ class _RoomScreenState extends State<RoomScreen> {
 
     setState(() => _pickingAttachments = true);
     try {
-      final result = await FilePicker().pickFiles(
-        allowMultiple: true,
-        withData: false,
-      );
-      if (result == null || !mounted) return;
+      final pickedFiles = await FilePicker.pickFiles();
+      if (pickedFiles.isEmpty || !mounted) return;
 
       final remaining = 10 - _composerAttachments.length;
-      final picked = result.files
-          .where((file) => file.path != null && file.size > 0)
+      final picked = pickedFiles
+          .where((file) => file.path != null)
           .take(remaining)
           .toList(growable: false);
 
       for (var index = 0; index < picked.length; index += 1) {
         final file = picked[index];
         final path = file.path!;
+        final sizeBytes = file.lengthSync() ?? await file.length() ?? 0;
+        if (sizeBytes <= 0) continue;
+
         final item = _ComposerAttachment(
           localId:
               '${DateTime.now().microsecondsSinceEpoch}-$index-${file.name}',
           path: path,
           name: file.name,
           mimeType: lookupMimeType(path) ?? 'application/octet-stream',
-          sizeBytes: file.size,
+          sizeBytes: sizeBytes,
           progress: 0,
           status: _ComposerAttachmentStatus.uploading,
         );
