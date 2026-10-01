@@ -332,6 +332,60 @@ class MobileDataController extends ChangeNotifier {
     _notify();
   }
 
+  Future<void> bookmarkRoomMessage({
+    required String messageId,
+    String? note,
+  }) {
+    return _messageActionsTransport.bookmarkMessage(
+      messageId: messageId,
+      note: note,
+    );
+  }
+
+  Future<void> pinRoomMessage({
+    required String messageId,
+    required bool active,
+  }) {
+    return _messageActionsTransport.pinMessage(
+      messageId: messageId,
+      active: active,
+    );
+  }
+
+  Future<void> forwardRoomMessage({
+    required String messageId,
+    required RoomRef destination,
+  }) async {
+    await _messageActionsTransport.forwardMessage(
+      messageId: messageId,
+      destinationKind: destination.kind.wireName,
+      destinationId: destination.id,
+    );
+    if (_openRooms.contains(destination)) {
+      await _syncEngine.reconcileRoom(destination);
+    }
+    await refreshInbox();
+  }
+
+  Future<List<Map<String, dynamic>>> messageThread(String messageId) {
+    return _messageActionsTransport.thread(messageId);
+  }
+
+  Future<void> sendThreadReply({
+    required RoomRef room,
+    required String messageId,
+    required String body,
+  }) async {
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) return;
+    await _messageActionsTransport.sendThreadReply(
+      messageId: messageId,
+      body: trimmed,
+    );
+    await _syncEngine.reconcileRoom(room);
+    _notify();
+  }
+
   Future<void> setRoomReaction({
     required RoomRef room,
     required String messageId,
