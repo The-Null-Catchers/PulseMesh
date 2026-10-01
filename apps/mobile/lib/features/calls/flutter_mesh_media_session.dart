@@ -176,6 +176,14 @@ class FlutterMeshMediaSession {
     await startCamera(deviceId: deviceId);
   }
 
+  Future<void> switchCamera() async {
+    final track = _cameraTrack;
+    if (track == null) {
+      throw StateError('Camera is not active');
+    }
+    await Helper.switchCamera(track);
+  }
+
   Future<void> leave() async {
     for (final peer in _peers.values) {
       await peer.close();
