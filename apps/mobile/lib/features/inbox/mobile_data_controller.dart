@@ -8,6 +8,7 @@ import '../../offline/local_store.dart';
 import '../../offline/models.dart';
 import '../../offline/sync_engine.dart';
 import '../../offline/sync_transport.dart';
+import '../calls/call_transport.dart';
 import '../messages/file_transport.dart';
 import '../messages/message_actions_transport.dart';
 import '../messages/room_message.dart';
@@ -27,6 +28,7 @@ class MobileDataController extends ChangeNotifier {
     required MessageSyncTransport messageSyncTransport,
     required MessageActionsTransport messageActionsTransport,
     MobileFileTransport? fileTransport,
+    CallTransport? callTransport,
   })  : _authSession = authSession,
         _config = config,
         _store = localStore,
@@ -34,6 +36,7 @@ class MobileDataController extends ChangeNotifier {
         _inboxTransport = inboxTransport,
         _messageActionsTransport = messageActionsTransport,
         _fileTransport = fileTransport,
+        _callTransport = callTransport,
         _syncEngine = OfflineSyncEngine(
           store: localStore,
           transport: messageSyncTransport,
@@ -69,6 +72,10 @@ class MobileDataController extends ChangeNotifier {
         baseUrl: config.apiBaseUrl,
         accessToken: authSession.accessToken,
       ),
+      callTransport: DioCallTransport(
+        baseUrl: config.apiBaseUrl,
+        accessToken: authSession.accessToken,
+      ),
     );
   }
 
@@ -79,6 +86,9 @@ class MobileDataController extends ChangeNotifier {
   final InboxTransport _inboxTransport;
   final MessageActionsTransport _messageActionsTransport;
   final MobileFileTransport? _fileTransport;
+  final CallTransport? _callTransport;
+  final StreamController<Map<String, dynamic>> _realtimeEvents =
+      StreamController<Map<String, dynamic>>.broadcast();
   final OfflineSyncEngine _syncEngine;
   final Set<RoomRef> _openRooms = <RoomRef>{};
   final Map<RoomRef, Set<String>> _typingUsers = <RoomRef, Set<String>>{};
@@ -105,6 +115,7 @@ class MobileDataController extends ChangeNotifier {
   MobileRealtimeState get realtimeState => _realtimeState;
   int get totalUnread => _inbox.totalUnread;
   String? get currentUserId => _authSession.currentUserId;
+  Stream<Map<String, dynamic>> get realtimeEvents => _realtimeEvents.stream;
 
   Set<String> typingUsersForRoom(RoomRef room) =>
       Set<String>.unmodifiable(_typingUsers[room] ?? const <String>{});
@@ -287,6 +298,83 @@ class MobileDataController extends ChangeNotifier {
       throw StateError('File transport is not configured');
     }
     return transport.downloadUrl(fileId);
+  }
+
+  Future<List<Map<String, dynamic>>> callIceServers() async {
+    final transport = _callTransport;
+    if (transport == null) {
+      throw StateError('Call transport is not configured');
+    }
+    return transport.iceServers();
+  }
+
+  Future<ActiveCall> startVoiceCall(String channelId) async {
+    final transport = _callTransport;
+    if (transport == null) {
+      throw StateError('Call transport is not configured');
+    }
+    return transport.startVoiceCall(channelId);
+  }
+
+  Future<ActiveCall> refreshCall(String callId) async {
+    final transport = _callTransport;
+    if (transport == null) {
+      throw StateError('Call transport is not configured');
+    }
+    return transport.refreshCall(callId);
+  }
+
+  Future<CallParticipant> updateCallParticipant(
+    String callId, {
+    bool? muted,
+    bool? deafened,
+    String? connectionState,
+  }) async {
+    final transport = _callTransport;
+    if (transport == null) {
+      throw StateError('Call transport is not configured');
+    }
+    return transport.updateParticipant(
+      callId,
+      muted: muted,
+      deafened: deafened,
+      connectionState: connectionState,
+    );
+  }
+
+  Future<void> leaveCall(String callId) async {
+    final transport = _callTransport;
+    if (transport == null) return;
+    await transport.leave(callId);
+  }
+
+  void watchCallRoom(RoomRef room) {
+    _realtime?.watchRoom(room);
+  }
+
+  void unwatchCallRoom(RoomRef room) {
+    if (!_openRooms.contains(room)) {
+      _realtime?.unwatchRoom(room);
+    }
+  }
+
+  void sendCallSignal({
+    required String callId,
+    required String targetParticipantId,
+    required Map<String, dynamic> signal,
+  }) {
+    _realtime?.sendCallSignal(
+      callId: callId,
+      targetParticipantId: targetParticipantId,
+      signal: signal,
+    );
+  }
+
+  void sendCallSpeaking({
+    required String callId,
+    required bool speaking,
+  }) {
+    _realtime?.sendCallSpeaking(callId: callId, speaking: speaking);
   }
 
   Future<void> retryRoomMessage(String clientMessageId) async {
@@ -499,6 +587,11 @@ class MobileDataController extends ChangeNotifier {
       localStore: _store,
       onInboxDirty: _refreshInboxBestEffort,
       onRoomDirty: _reconcileRoomBestEffort,
+      onEvent: (event) {
+        if (!_realtimeEvents.isClosed) {
+          _realtimeEvents.add(event);
+        }
+      },
       onTypingChanged: (room, userIds) {
         if (_disposed) return;
         _typingUsers[room] = userIds;
@@ -655,6 +748,7 @@ class MobileDataController extends ChangeNotifier {
     }
     unawaited(_syncEngine.dispose());
     unawaited(_store.close());
+    unawaited(_realtimeEvents.close());
     super.dispose();
   }
 }

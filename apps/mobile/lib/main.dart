@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'auth/auth_bootstrap.dart';
 import 'auth/auth_session_controller.dart';
 import 'config/app_config.dart';
+import 'features/calls/voice_room_screen.dart';
 import 'features/inbox/inbox_models.dart';
 import 'features/inbox/inbox_realtime.dart';
 import 'features/inbox/mobile_data_controller.dart';
@@ -90,6 +91,14 @@ final router = GoRouter(
           builder: (_, _) => const PlaceholderScreen(title: 'Profile'),
         ),
       ],
+    ),
+    GoRoute(
+      path: '/voice/:id',
+      builder: (context, state) {
+        final id = state.pathParameters['id']!;
+        final title = state.uri.queryParameters['title'] ?? 'Voice room';
+        return VoiceRoomScreen(channelId: id, title: title);
+      },
     ),
     GoRoute(
       path: '/room/:kind/:id',
@@ -583,6 +592,11 @@ class _VoiceChannelTile extends StatelessWidget {
         title: Text(channel.name),
         subtitle: Text(channel.visibility),
         trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () {
+          context.push(
+            '/voice/${channel.id}?title=${Uri.encodeComponent(channel.name)}',
+          );
+        },
       ),
     );
   }
