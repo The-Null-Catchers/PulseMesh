@@ -18,6 +18,29 @@ abstract interface class MessageActionsTransport {
     required String emoji,
     required bool active,
   });
+
+  Future<void> bookmarkMessage({
+    required String messageId,
+    String? note,
+  });
+
+  Future<void> pinMessage({
+    required String messageId,
+    required bool active,
+  });
+
+  Future<void> forwardMessage({
+    required String messageId,
+    required String destinationKind,
+    required String destinationId,
+  });
+
+  Future<List<Map<String, dynamic>>> thread(String messageId);
+
+  Future<void> sendThreadReply({
+    required String messageId,
+    required String body,
+  });
 }
 
 class DioMessageActionsTransport implements MessageActionsTransport {
@@ -73,6 +96,71 @@ class DioMessageActionsTransport implements MessageActionsTransport {
   }
 
   @override
+  Future<void> bookmarkMessage({
+    required String messageId,
+    String? note,
+  }) async {
+    await _dio.put<void>(
+      '/messages/$messageId/bookmark',
+      data: {'note': note},
+      options: await _options(),
+    );
+  }
+
+  @override
+  Future<void> pinMessage({
+    required String messageId,
+    required bool active,
+  }) async {
+    final path = '/messages/$messageId/pin';
+    final options = await _options();
+    if (active) {
+      await _dio.post<void>(path, options: options);
+    } else {
+      await _dio.delete<void>(path, options: options);
+    }
+  }
+
+  @override
+  Future<void> forwardMessage({
+    required String messageId,
+    required String destinationKind,
+    required String destinationId,
+  }) async {
+    await _dio.post<void>(
+      '/messages/$messageId/forward',
+      data: destinationKind == 'channel'
+          ? {'channelId': destinationId}
+          : {'conversationId': destinationId},
+      options: await _options(),
+    );
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> thread(String messageId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/messages/$messageId/thread',
+      options: await _options(),
+    );
+    final items = response.data?['items'] as List<dynamic>? ?? const [];
+    return items
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> sendThreadReply({
+    required String messageId,
+    required String body,
+  }) async {
+    await _dio.post<void>(
+      '/messages/$messageId/thread',
+      data: {'body': body},
+      options: await _options(),
+    );
+  }
+
+  @override
   Future<void> setReaction({
     required String messageId,
     required String emoji,
@@ -89,3 +177,4 @@ class DioMessageActionsTransport implements MessageActionsTransport {
     }
   }
 }
+
