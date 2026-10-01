@@ -562,7 +562,7 @@ class _RoomScreenState extends State<RoomScreen> {
           .map(
             (channel) => _ForwardDestination(
               room: RoomRef(kind: RoomKind.channel, id: channel.id),
-              label: '# ' + channel.name,
+              label: '# ${channel.name}',
               icon: Icons.tag_rounded,
             ),
           ),
@@ -631,7 +631,7 @@ class _RoomScreenState extends State<RoomScreen> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Forwarded to ' + destination.label + '.')),
+        SnackBar(content: Text('Forwarded to ${destination.label}.')),
       );
     } catch (_) {
       if (!mounted) return;
@@ -1905,7 +1905,7 @@ String _conversationLabel(
     final displayName = member.displayName as String;
     if (displayName.trim().isNotEmpty) return displayName.trim();
     final username = member.username as String;
-    if (username.trim().isNotEmpty) return '@' + username.trim();
+    if (username.trim().isNotEmpty) return '@${username.trim()}';
   }
   return conversation.kind == 'group' ? 'Group conversation' : 'Direct message';
 }
