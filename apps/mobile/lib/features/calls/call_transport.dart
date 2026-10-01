@@ -173,13 +173,16 @@ class DioCallTransport implements CallTransport {
     bool? deafened,
     String? connectionState,
   }) async {
+    final patch = <String, dynamic>{};
+    if (muted != null) patch['muted'] = muted;
+    if (deafened != null) patch['deafened'] = deafened;
+    if (connectionState != null) {
+      patch['connectionState'] = connectionState;
+    }
+
     final response = await _dio.patch<Map<String, dynamic>>(
       '/calls/$callId/participant',
-      data: {
-        if (muted != null) 'muted': muted,
-        if (deafened != null) 'deafened': deafened,
-        if (connectionState != null) 'connectionState': connectionState,
-      },
+      data: patch,
       options: await _options(),
     );
     return CallParticipant.fromJson(response.data ?? const {});
