@@ -8,6 +8,7 @@ import '../../offline/local_store.dart';
 import '../../offline/models.dart';
 import '../../offline/sync_engine.dart';
 import '../../offline/sync_transport.dart';
+import '../messages/file_transport.dart';
 import '../messages/message_actions_transport.dart';
 import '../messages/room_message.dart';
 import '../workspaces/workspace_models.dart';
@@ -25,12 +26,14 @@ class MobileDataController extends ChangeNotifier {
     required InboxTransport inboxTransport,
     required MessageSyncTransport messageSyncTransport,
     required MessageActionsTransport messageActionsTransport,
+    MobileFileTransport? fileTransport,
   })  : _authSession = authSession,
         _config = config,
         _store = localStore,
         _workspaceTransport = workspaceTransport,
         _inboxTransport = inboxTransport,
         _messageActionsTransport = messageActionsTransport,
+        _fileTransport = fileTransport,
         _syncEngine = OfflineSyncEngine(
           store: localStore,
           transport: messageSyncTransport,
@@ -62,6 +65,10 @@ class MobileDataController extends ChangeNotifier {
         baseUrl: config.apiBaseUrl,
         accessToken: authSession.accessToken,
       ),
+      fileTransport: DioMobileFileTransport(
+        baseUrl: config.apiBaseUrl,
+        accessToken: authSession.accessToken,
+      ),
     );
   }
 
@@ -71,6 +78,7 @@ class MobileDataController extends ChangeNotifier {
   final WorkspaceTransport _workspaceTransport;
   final InboxTransport _inboxTransport;
   final MessageActionsTransport _messageActionsTransport;
+  final MobileFileTransport? _fileTransport;
   final OfflineSyncEngine _syncEngine;
   final Set<RoomRef> _openRooms = <RoomRef>{};
   final Map<RoomRef, Set<String>> _typingUsers = <RoomRef, Set<String>>{};
@@ -225,19 +233,60 @@ class MobileDataController extends ChangeNotifier {
     RoomRef room,
     String body, {
     String? replyToMessageId,
+    List<String> attachmentIds = const [],
   }) async {
     final trimmed = body.trim();
-    if (trimmed.isEmpty) {
-      throw ArgumentError.value(body, 'body', 'Message cannot be empty');
+    if (trimmed.isEmpty && attachmentIds.isEmpty) {
+      throw ArgumentError.value(
+        body,
+        'body',
+        'Message must contain text or an attachment',
+      );
     }
 
     final clientMessageId = await _syncEngine.enqueueMessage(
       room: room,
       body: trimmed,
       replyToMessageId: replyToMessageId,
+      attachmentIds: attachmentIds,
     );
     _notify();
     return clientMessageId;
+  }
+
+  Future<RoomAttachment> uploadAttachment({
+    required String path,
+    required String name,
+    required String mimeType,
+    required int sizeBytes,
+    UploadProgressCallback? onProgress,
+  }) async {
+    final transport = _fileTransport;
+    if (transport == null) {
+      throw StateError('File transport is not configured');
+    }
+
+    return transport.upload(
+      path: path,
+      name: name,
+      mimeType: mimeType,
+      sizeBytes: sizeBytes,
+      onProgress: onProgress,
+    );
+  }
+
+  Future<void> deleteUploadedAttachment(String fileId) async {
+    final transport = _fileTransport;
+    if (transport == null) return;
+    await transport.delete(fileId);
+  }
+
+  Future<Uri> attachmentDownloadUrl(String fileId) async {
+    final transport = _fileTransport;
+    if (transport == null) {
+      throw StateError('File transport is not configured');
+    }
+    return transport.downloadUrl(fileId);
   }
 
   Future<void> retryRoomMessage(String clientMessageId) async {
