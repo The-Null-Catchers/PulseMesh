@@ -316,8 +316,21 @@ class MobileDataController extends ChangeNotifier {
     return transport.startVoiceCall(channelId);
   }
 
-  Future<ActiveCall> refreshCall(String callId) async {
+  Future<ActiveCall> startConversationCall(
+    String conversationId, {
+    required String kind,
+  }) async {
     final transport = _callTransport;
+    if (transport == null) {
+      throw StateError('Call transport is not configured');
+    }
+    return transport.startConversationCall(
+      conversationId,
+      kind: kind,
+    );
+  }
+
+  Future<ActiveCall> refreshCall(String callId) async {    final transport = _callTransport;
     if (transport == null) {
       throw StateError('Call transport is not configured');
     }
@@ -328,6 +341,7 @@ class MobileDataController extends ChangeNotifier {
     String callId, {
     bool? muted,
     bool? deafened,
+    bool? cameraEnabled,
     String? connectionState,
   }) async {
     final transport = _callTransport;
@@ -338,6 +352,7 @@ class MobileDataController extends ChangeNotifier {
       callId,
       muted: muted,
       deafened: deafened,
+      cameraEnabled: cameraEnabled,
       connectionState: connectionState,
     );
   }
