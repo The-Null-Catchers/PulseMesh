@@ -594,7 +594,7 @@ class _VoiceChannelTile extends StatelessWidget {
         trailing: const Icon(Icons.chevron_right_rounded),
         onTap: () {
           context.push(
-            '/voice/' + channel.id + '?title=' + Uri.encodeComponent(channel.name),
+            '/voice/${channel.id}?title=${Uri.encodeComponent(channel.name)}',
           );
         },
       ),
