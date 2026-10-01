@@ -86,6 +86,34 @@ class EmptyMessageActionsTransport implements MessageActionsTransport {
     required String emoji,
     required bool active,
   }) async {}
+
+  @override
+  Future<void> bookmarkMessage({
+    required String messageId,
+    String? note,
+  }) async {}
+
+  @override
+  Future<void> pinMessage({
+    required String messageId,
+    required bool active,
+  }) async {}
+
+  @override
+  Future<void> forwardMessage({
+    required String messageId,
+    required String destinationKind,
+    required String destinationId,
+  }) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> thread(String messageId) async => const [];
+
+  @override
+  Future<void> sendThreadReply({
+    required String messageId,
+    required String body,
+  }) async {}
 }
 
 class EmptyAuthStore implements AuthSessionStore {

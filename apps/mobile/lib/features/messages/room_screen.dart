@@ -480,6 +480,189 @@ class _RoomScreenState extends State<RoomScreen> {
     }
   }
 
+  Future<void> _bookmarkMessage(RoomMessage message) async {
+    final messageId = message.serverId;
+    if (messageId == null) return;
+
+    final noteController = TextEditingController();
+    final note = await showDialog<String?>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Save bookmark'),
+        content: TextField(
+          controller: noteController,
+          maxLength: 1000,
+          minLines: 1,
+          maxLines: 4,
+          decoration: const InputDecoration(hintText: 'Optional note'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              noteController.text.trim(),
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    noteController.dispose();
+    if (note == null || !mounted) return;
+
+    try {
+      await _data?.bookmarkRoomMessage(
+        messageId: messageId,
+        note: note.isEmpty ? null : note,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Message saved to bookmarks.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not bookmark this message.')),
+      );
+    }
+  }
+
+  Future<void> _pinMessage(RoomMessage message) async {
+    final messageId = message.serverId;
+    if (messageId == null) return;
+
+    try {
+      await _data?.pinRoomMessage(messageId: messageId, active: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Message pinned.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You may not have permission to pin this message.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _forwardMessage(RoomMessage message) async {
+    final messageId = message.serverId;
+    final data = _data;
+    if (messageId == null || data == null) return;
+
+    final destinations = <_ForwardDestination>[
+      ...data.inbox.channels
+          .where((channel) => !channel.isVoice)
+          .map(
+            (channel) => _ForwardDestination(
+              room: RoomRef(kind: RoomKind.channel, id: channel.id),
+              label: '# ${channel.name}',
+              icon: Icons.tag_rounded,
+            ),
+          ),
+      ...data.inbox.conversations.map(
+        (conversation) => _ForwardDestination(
+          room: RoomRef(kind: RoomKind.conversation, id: conversation.id),
+          label: _conversationLabel(conversation, data.currentUserId),
+          icon: conversation.kind == 'group'
+              ? Icons.group_outlined
+              : Icons.person_outline_rounded,
+        ),
+      ),
+    ];
+
+    final destination = await showModalBottomSheet<_ForwardDestination>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFF0C171C),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: SizedBox(
+          height: MediaQuery.sizeOf(sheetContext).height * 0.65,
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Forward message',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: destinations.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No destinations available.',
+                          style: TextStyle(color: Colors.white54),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: destinations.length,
+                        itemBuilder: (context, index) {
+                          final item = destinations[index];
+                          return ListTile(
+                            leading: Icon(item.icon),
+                            title: Text(item.label),
+                            onTap: () => Navigator.pop(sheetContext, item),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (destination == null || !mounted) return;
+
+    try {
+      await data.forwardRoomMessage(
+        messageId: messageId,
+        destination: destination.room,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Forwarded to ${destination.label}.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not forward this message.')),
+      );
+    }
+  }
+
+  Future<void> _openThread(RoomMessage message) async {
+    final messageId = message.serverId;
+    final data = _data;
+    if (messageId == null || data == null) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFF071015),
+      builder: (sheetContext) => FractionallySizedBox(
+        heightFactor: 0.88,
+        child: _ThreadSheet(
+          root: message,
+          room: widget.room,
+          data: data,
+        ),
+      ),
+    );
+    await _loadFromCache();
+  }
+
   Future<void> _showMessageActions(RoomMessage message) async {
     if (message.serverId == null) {
       if (message.failed) {
@@ -557,6 +740,38 @@ class _RoomScreenState extends State<RoomScreen> {
                       _startReply(message);
                     },
                   ),
+                ListTile(
+                  leading: const Icon(Icons.forum_outlined),
+                  title: const Text('Open thread'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    unawaited(_openThread(message));
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.forward_rounded),
+                  title: const Text('Forward'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    unawaited(_forwardMessage(message));
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.bookmark_add_outlined),
+                  title: const Text('Bookmark'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    unawaited(_bookmarkMessage(message));
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.push_pin_outlined),
+                  title: const Text('Pin message'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    unawaited(_pinMessage(message));
+                  },
+                ),
                 if (isMine && !message.encrypted && !widget.encrypted)
                   ListTile(
                     leading: const Icon(Icons.edit_outlined),
@@ -772,6 +987,209 @@ class _RoomScreenState extends State<RoomScreen> {
       return '${unique.first} and ${unique.last} are typing…';
     }
     return '${unique.take(2).join(', ')} and others are typing…';
+  }
+}
+
+class _ForwardDestination {
+  const _ForwardDestination({
+    required this.room,
+    required this.label,
+    required this.icon,
+  });
+
+  final RoomRef room;
+  final String label;
+  final IconData icon;
+}
+
+class _ThreadSheet extends StatefulWidget {
+  const _ThreadSheet({
+    required this.root,
+    required this.room,
+    required this.data,
+  });
+
+  final RoomMessage root;
+  final RoomRef room;
+  final MobileDataController data;
+
+  @override
+  State<_ThreadSheet> createState() => _ThreadSheetState();
+}
+
+class _ThreadSheetState extends State<_ThreadSheet> {
+  final TextEditingController _replyController = TextEditingController();
+  List<Map<String, dynamic>> _items = const [];
+  bool _loading = true;
+  bool _sending = false;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    final id = widget.root.serverId;
+    if (id == null) return;
+    try {
+      final items = await widget.data.messageThread(id);
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error;
+      });
+    }
+  }
+
+  Future<void> _send() async {
+    final id = widget.root.serverId;
+    final body = _replyController.text.trim();
+    if (id == null || body.isEmpty || _sending) return;
+
+    setState(() => _sending = true);
+    try {
+      await widget.data.sendThreadReply(
+        room: widget.room,
+        messageId: id,
+        body: body,
+      );
+      _replyController.clear();
+      await _load();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not send thread reply.')),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _replyController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ListTile(
+          leading: const Icon(
+            Icons.forum_outlined,
+            color: Color(0xFF68E0CF),
+          ),
+          title: const Text(
+            'Thread',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          subtitle: Text(
+            _shorten(
+              widget.root.body.isEmpty ? 'Attachment' : widget.root.body,
+              90,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+                  ? Center(
+                      child: OutlinedButton.icon(
+                        onPressed: _load,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Retry thread'),
+                      ),
+                    )
+                  : _items.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'No thread replies yet.',
+                            style: TextStyle(color: Colors.white54),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(14),
+                          itemCount: _items.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final item = _items[index];
+                            final sender = item['display_name'] as String? ??
+                                item['username'] as String? ??
+                                'Member';
+                            final body = item['body'] as String? ?? '';
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0B171C),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    sender,
+                                    style: const TextStyle(
+                                      color: Color(0xFF68E0CF),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 5),
+                                  Text(body),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _replyController,
+                    minLines: 1,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Reply in thread…',
+                    ),
+                    onSubmitted: (_) => _send(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: _sending ? null : _send,
+                  icon: _sending
+                      ? const SizedBox.square(
+                          dimension: 17,
+                          child: CircularProgressIndicator(strokeWidth: 1.8),
+                        )
+                      : const Icon(Icons.arrow_upward_rounded),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -1472,6 +1890,24 @@ class _EmptyRoom extends StatelessWidget {
       ),
     );
   }
+}
+
+String _conversationLabel(
+  dynamic conversation,
+  String? currentUserId,
+) {
+  final name = conversation.name as String?;
+  if (name != null && name.trim().isNotEmpty) return name.trim();
+
+  final members = conversation.members as List;
+  for (final member in members) {
+    if (member.id == currentUserId) continue;
+    final displayName = member.displayName as String;
+    if (displayName.trim().isNotEmpty) return displayName.trim();
+    final username = member.username as String;
+    if (username.trim().isNotEmpty) return '@${username.trim()}';
+  }
+  return conversation.kind == 'group' ? 'Group conversation' : 'Direct message';
 }
 
 String _connectionText(MobileDataController data) {
