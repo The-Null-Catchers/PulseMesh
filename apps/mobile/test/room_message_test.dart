@@ -53,6 +53,33 @@ void main() {
     expect(message.reactions.first.reactedByMe, isTrue);
   });
 
+  test('parses cached attachments for message cards', () {
+    final message = RoomMessage.fromRow({
+      'local_id': 'message-3',
+      'server_id': 'message-3',
+      'client_message_id': null,
+      'body': '',
+      'sender_id': 'user-3',
+      'sender_username': 'ibrahim',
+      'sender_display_name': 'Ibrahim',
+      'sender_avatar_url': null,
+      'reply_to_message_id': null,
+      'reactions_json': '[]',
+      'attachments_json':
+          '[{"id":"file-1","name":"diagram.png","mimeType":"image/png","sizeBytes":4096,"width":800,"height":600,"durationMs":null,"hasThumbnail":true}]',
+      'created_at': '2026-09-30T18:02:00.000Z',
+      'edited_at': null,
+      'status': 'sent',
+      'encryption_version': null,
+      'encrypted_payload': null,
+    });
+
+    expect(message.attachments, hasLength(1));
+    expect(message.attachments.single.name, 'diagram.png');
+    expect(message.attachments.single.isImage, isTrue);
+    expect(message.attachments.single.sizeBytes, 4096);
+  });
+
   test('keeps optimistic messages identifiable as self', () {
     final message = RoomMessage.fromRow({
       'local_id': 'client-1',
