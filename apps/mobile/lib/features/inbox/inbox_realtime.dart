@@ -11,6 +11,7 @@ typedef MobileAccessTokenProvider = Future<String?> Function();
 typedef InboxDirtyCallback = Future<void> Function();
 typedef RoomDirtyCallback = Future<void> Function(RoomRef room, String eventType);
 typedef TypingChangedCallback = void Function(RoomRef room, Set<String> userIds);
+typedef RealtimeEventCallback = void Function(Map<String, dynamic> event);
 
 enum MobileRealtimeState { disconnected, connecting, ready, reconnecting }
 
@@ -101,6 +102,7 @@ class MobileInboxRealtimeBridge {
     required InboxDirtyCallback onInboxDirty,
     this.onRoomDirty,
     this.onTypingChanged,
+    this.onEvent,
     this.onStateChanged,
     this.inboxDebounce = const Duration(milliseconds: 250),
   })  : _ticketProvider = ticketProvider,
@@ -113,6 +115,7 @@ class MobileInboxRealtimeBridge {
   final InboxDirtyCallback _onInboxDirty;
   final RoomDirtyCallback? onRoomDirty;
   final TypingChangedCallback? onTypingChanged;
+  final RealtimeEventCallback? onEvent;
   final void Function(MobileRealtimeState state)? onStateChanged;
   final Duration inboxDebounce;
 
@@ -248,6 +251,7 @@ class MobileInboxRealtimeBridge {
     }
 
     final type = event['type'];
+    onEvent?.call(event);
 
     if (type == 'session.ready') {
       _send({
@@ -335,6 +339,32 @@ class MobileInboxRealtimeBridge {
       'conversation' => RoomRef(kind: RoomKind.conversation, id: id),
       _ => null,
     };
+  }
+
+  void sendCallSignal({
+    required String callId,
+    required String targetParticipantId,
+    required Map<String, dynamic> signal,
+  }) {
+    if (_state != MobileRealtimeState.ready) return;
+    _send({
+      'type': 'call.signal',
+      'callId': callId,
+      'targetParticipantId': targetParticipantId,
+      'signal': signal,
+    });
+  }
+
+  void sendCallSpeaking({
+    required String callId,
+    required bool speaking,
+  }) {
+    if (_state != MobileRealtimeState.ready) return;
+    _send({
+      'type': 'call.speaking',
+      'callId': callId,
+      'speaking': speaking,
+    });
   }
 
   void sendTyping(RoomRef room, {required bool typing}) {
