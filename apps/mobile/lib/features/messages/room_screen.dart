@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:mime/mime.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../offline/models.dart';
 import '../inbox/inbox_realtime.dart';
@@ -47,6 +50,8 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _loading = true;
   bool _sending = false;
   bool _refreshingCache = false;
+  bool _pickingAttachments = false;
+  List<_ComposerAttachment> _composerAttachments = const [];
 
   @override
   void didChangeDependencies() {
@@ -91,14 +96,210 @@ class _RoomScreenState extends State<RoomScreen> {
     }
   }
 
+  Future<void> _pickAttachments() async {
+    if (widget.encrypted ||
+        _editingMessage != null ||
+        _pickingAttachments ||
+        _composerAttachments.length >= 10) {
+      return;
+    }
+
+    setState(() => _pickingAttachments = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        withData: false,
+      );
+      if (result == null || !mounted) return;
+
+      final remaining = 10 - _composerAttachments.length;
+      final picked = result.files
+          .where((file) => file.path != null && file.size > 0)
+          .take(remaining)
+          .toList(growable: false);
+
+      for (var index = 0; index < picked.length; index += 1) {
+        final file = picked[index];
+        final path = file.path!;
+        final item = _ComposerAttachment(
+          localId:
+              '${DateTime.now().microsecondsSinceEpoch}-$index-${file.name}',
+          path: path,
+          name: file.name,
+          mimeType: lookupMimeType(path) ?? 'application/octet-stream',
+          sizeBytes: file.size,
+          progress: 0,
+          status: _ComposerAttachmentStatus.uploading,
+        );
+
+        setState(() {
+          _composerAttachments = [..._composerAttachments, item];
+        });
+        unawaited(_uploadComposerAttachment(item));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _pickingAttachments = false);
+      }
+    }
+  }
+
+  Future<void> _uploadComposerAttachment(_ComposerAttachment item) async {
+    final data = _data;
+    if (data == null) return;
+
+    try {
+      final attachment = await data.uploadAttachment(
+        path: item.path,
+        name: item.name,
+        mimeType: item.mimeType,
+        sizeBytes: item.sizeBytes,
+        onProgress: (sent, total) {
+          if (!mounted || total <= 0) return;
+          _updateComposerAttachment(
+            item.localId,
+            (current) => current.copyWith(
+              progress: (sent / total).clamp(0, 1),
+            ),
+          );
+        },
+      );
+
+      if (!mounted) return;
+      final stillSelected =
+          _composerAttachments.any((entry) => entry.localId == item.localId);
+      if (!stillSelected) {
+        unawaited(data.deleteUploadedAttachment(attachment.id));
+        return;
+      }
+
+      _updateComposerAttachment(
+        item.localId,
+        (current) => current.copyWith(
+          progress: 1,
+          status: _ComposerAttachmentStatus.ready,
+          attachment: attachment,
+          error: null,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _updateComposerAttachment(
+        item.localId,
+        (current) => current.copyWith(
+          status: _ComposerAttachmentStatus.failed,
+          error: error.toString(),
+        ),
+      );
+    }
+  }
+
+  void _updateComposerAttachment(
+    String localId,
+    _ComposerAttachment Function(_ComposerAttachment current) update,
+  ) {
+    if (!mounted) return;
+    final index =
+        _composerAttachments.indexWhere((item) => item.localId == localId);
+    if (index < 0) return;
+
+    final next = [..._composerAttachments];
+    next[index] = update(next[index]);
+    setState(() => _composerAttachments = next);
+  }
+
+  Future<void> _removeComposerAttachment(_ComposerAttachment item) async {
+    setState(() {
+      _composerAttachments = _composerAttachments
+          .where((candidate) => candidate.localId != item.localId)
+          .toList(growable: false);
+    });
+
+    final fileId = item.attachment?.id;
+    if (fileId != null) {
+      try {
+        await _data?.deleteUploadedAttachment(fileId);
+      } catch (_) {
+        // Cleanup is best-effort. The server can garbage-collect unattached files.
+      }
+    }
+  }
+
+  Future<void> _retryComposerAttachment(_ComposerAttachment item) async {
+    _updateComposerAttachment(
+      item.localId,
+      (current) => current.copyWith(
+        progress: 0,
+        status: _ComposerAttachmentStatus.uploading,
+        error: null,
+      ),
+    );
+    await _uploadComposerAttachment(item);
+  }
+
+  Future<void> _discardComposerAttachments() async {
+    final discarded = _composerAttachments;
+    if (discarded.isEmpty) return;
+    setState(() => _composerAttachments = const []);
+
+    for (final item in discarded) {
+      final fileId = item.attachment?.id;
+      if (fileId == null) continue;
+      try {
+        await _data?.deleteUploadedAttachment(fileId);
+      } catch (_) {
+        // Best-effort cleanup.
+      }
+    }
+  }
+
+  Future<void> _downloadAttachment(RoomAttachment attachment) async {
+    try {
+      final uri = await _data?.attachmentDownloadUrl(attachment.id);
+      if (uri == null) return;
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) throw StateError('Could not open download URL');
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open this attachment.')),
+      );
+    }
+  }
+
   Future<void> _send() async {
     if (_sending || widget.encrypted) return;
 
     final body = _composer.text.trim();
-    if (body.isEmpty) return;
-
     final editing = _editingMessage;
     final reply = _replyingTo;
+    final attachments = _composerAttachments;
+
+    if (attachments.any(
+      (item) => item.status == _ComposerAttachmentStatus.uploading,
+    )) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Wait for attachments to finish uploading.')),
+      );
+      return;
+    }
+
+    if (attachments.any(
+      (item) => item.status == _ComposerAttachmentStatus.failed,
+    )) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Retry or remove failed attachments first.')),
+      );
+      return;
+    }
+
+    final readyAttachments = attachments
+        .map((item) => item.attachment)
+        .whereType<RoomAttachment>()
+        .toList(growable: false);
+
+    if (editing == null && body.isEmpty && readyAttachments.isEmpty) return;
+    if (editing != null && body.isEmpty) return;
 
     setState(() => _sending = true);
     _stopTyping();
@@ -116,6 +317,8 @@ class _RoomScreenState extends State<RoomScreen> {
           widget.room,
           body,
           replyToMessageId: reply?.serverId,
+          attachmentIds:
+              readyAttachments.map((attachment) => attachment.id).toList(),
         );
       }
 
@@ -123,6 +326,7 @@ class _RoomScreenState extends State<RoomScreen> {
       setState(() {
         _editingMessage = null;
         _replyingTo = null;
+        _composerAttachments = const [];
       });
       await _loadFromCache();
       _composerFocus.requestFocus();
@@ -203,6 +407,7 @@ class _RoomScreenState extends State<RoomScreen> {
     }
 
     _stopTyping();
+    unawaited(_discardComposerAttachments());
     setState(() {
       _editingMessage = message;
       _replyingTo = null;
@@ -491,6 +696,7 @@ class _RoomScreenState extends State<RoomScreen> {
                                 reaction.emoji,
                                 active: !reaction.reactedByMe,
                               ),
+                              onAttachmentPressed: _downloadAttachment,
                             );
                           },
                         ),
@@ -501,12 +707,22 @@ class _RoomScreenState extends State<RoomScreen> {
             editingMessage: _editingMessage,
             onCancel: _cancelComposerContext,
           ),
+          _AttachmentComposerTray(
+            items: _composerAttachments,
+            onRemove: _removeComposerAttachment,
+            onRetry: _retryComposerAttachment,
+          ),
           _Composer(
             controller: _composer,
             focusNode: _composerFocus,
             encrypted: widget.encrypted,
             sending: _sending,
             editing: _editingMessage != null,
+            pickingAttachments: _pickingAttachments,
+            attachmentsBusy: _composerAttachments.any(
+              (item) => item.status == _ComposerAttachmentStatus.uploading,
+            ),
+            onPickAttachments: _pickAttachments,
             onChanged: _onComposerChanged,
             onSend: _send,
           ),
@@ -567,6 +783,7 @@ class _MessageCard extends StatelessWidget {
     required this.onRetry,
     required this.onLongPress,
     required this.onReactionPressed,
+    required this.onAttachmentPressed,
   });
 
   final RoomMessage message;
@@ -575,14 +792,11 @@ class _MessageCard extends StatelessWidget {
   final Future<void> Function(RoomMessage message) onRetry;
   final Future<void> Function(RoomMessage message) onLongPress;
   final Future<void> Function(RoomReaction reaction) onReactionPressed;
+  final Future<void> Function(RoomAttachment attachment) onAttachmentPressed;
 
   @override
   Widget build(BuildContext context) {
-    final body = message.encrypted
-        ? 'Encrypted message'
-        : message.body.isEmpty
-            ? 'Attachment'
-            : message.body;
+    final body = message.encrypted ? 'Encrypted message' : message.body;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -678,31 +892,51 @@ class _MessageCard extends StatelessWidget {
                           ),
                         ),
                       ],
-                      const SizedBox(height: 5),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (message.encrypted) ...[
-                            const Icon(
-                              Icons.lock_outline_rounded,
-                              size: 15,
-                              color: Color(0xFF68E0CF),
-                            ),
-                            const SizedBox(width: 5),
-                          ],
-                          Expanded(
-                            child: Text(
-                              body,
-                              style: TextStyle(
-                                color: message.encrypted
-                                    ? Colors.white54
-                                    : Colors.white,
-                                height: 1.35,
+                      if (body.isNotEmpty || message.encrypted) ...[
+                        const SizedBox(height: 5),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (message.encrypted) ...[
+                              const Icon(
+                                Icons.lock_outline_rounded,
+                                size: 15,
+                                color: Color(0xFF68E0CF),
+                              ),
+                              const SizedBox(width: 5),
+                            ],
+                            Expanded(
+                              child: Text(
+                                body,
+                                style: TextStyle(
+                                  color: message.encrypted
+                                      ? Colors.white54
+                                      : Colors.white,
+                                  height: 1.35,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
+                      if (message.attachments.isNotEmpty) ...[
+                        const SizedBox(height: 9),
+                        Column(
+                          children: message.attachments
+                              .map(
+                                (attachment) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: _MessageAttachmentTile(
+                                    attachment: attachment,
+                                    onPressed: () {
+                                      unawaited(onAttachmentPressed(attachment));
+                                    },
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                        ),
+                      ],
                       if (message.reactions.isNotEmpty) ...[
                         const SizedBox(height: 9),
                         Wrap(
@@ -866,6 +1100,9 @@ class _Composer extends StatelessWidget {
     required this.encrypted,
     required this.sending,
     required this.editing,
+    required this.pickingAttachments,
+    required this.attachmentsBusy,
+    required this.onPickAttachments,
     required this.onChanged,
     required this.onSend,
   });
@@ -875,6 +1112,9 @@ class _Composer extends StatelessWidget {
   final bool encrypted;
   final bool sending;
   final bool editing;
+  final bool pickingAttachments;
+  final bool attachmentsBusy;
+  final Future<void> Function() onPickAttachments;
   final ValueChanged<String> onChanged;
   final Future<void> Function() onSend;
 
@@ -895,8 +1135,15 @@ class _Composer extends StatelessWidget {
                 children: [
                   IconButton(
                     tooltip: 'Attachments',
-                    onPressed: null,
-                    icon: const Icon(Icons.add_circle_outline_rounded),
+                    onPressed: editing || pickingAttachments
+                        ? null
+                        : onPickAttachments,
+                    icon: pickingAttachments
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 1.8),
+                          )
+                        : const Icon(Icons.add_circle_outline_rounded),
                   ),
                   Expanded(
                     child: TextField(
@@ -918,7 +1165,7 @@ class _Composer extends StatelessWidget {
                   IconButton.filled(
                     key: const Key('room-send'),
                     tooltip: editing ? 'Save edit' : 'Send',
-                    onPressed: sending ? null : onSend,
+                    onPressed: sending || attachmentsBusy ? null : onSend,
                     icon: Icon(
                       editing ? Icons.check_rounded : Icons.arrow_upward_rounded,
                     ),
@@ -928,6 +1175,230 @@ class _Composer extends StatelessWidget {
       ),
     );
   }
+}
+
+enum _ComposerAttachmentStatus { uploading, ready, failed }
+
+class _ComposerAttachment {
+  const _ComposerAttachment({
+    required this.localId,
+    required this.path,
+    required this.name,
+    required this.mimeType,
+    required this.sizeBytes,
+    required this.progress,
+    required this.status,
+    this.attachment,
+    this.error,
+  });
+
+  final String localId;
+  final String path;
+  final String name;
+  final String mimeType;
+  final int sizeBytes;
+  final double progress;
+  final _ComposerAttachmentStatus status;
+  final RoomAttachment? attachment;
+  final String? error;
+
+  _ComposerAttachment copyWith({
+    double? progress,
+    _ComposerAttachmentStatus? status,
+    RoomAttachment? attachment,
+    String? error,
+  }) {
+    return _ComposerAttachment(
+      localId: localId,
+      path: path,
+      name: name,
+      mimeType: mimeType,
+      sizeBytes: sizeBytes,
+      progress: progress ?? this.progress,
+      status: status ?? this.status,
+      attachment: attachment ?? this.attachment,
+      error: error,
+    );
+  }
+}
+
+class _AttachmentComposerTray extends StatelessWidget {
+  const _AttachmentComposerTray({
+    required this.items,
+    required this.onRemove,
+    required this.onRetry,
+  });
+
+  final List<_ComposerAttachment> items;
+  final Future<void> Function(_ComposerAttachment item) onRemove;
+  final Future<void> Function(_ComposerAttachment item) onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
+      decoration: const BoxDecoration(
+        color: Color(0xFF091419),
+        border: Border(top: BorderSide(color: Color(0xFF173039))),
+      ),
+      child: SizedBox(
+        height: 70,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: items.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 8),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            final failed = item.status == _ComposerAttachmentStatus.failed;
+            return Container(
+              width: 210,
+              padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF102229),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: failed
+                      ? Colors.redAccent
+                      : const Color(0xFF24404A),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    failed
+                        ? Icons.error_outline_rounded
+                        : item.status == _ComposerAttachmentStatus.ready
+                            ? Icons.check_circle_outline_rounded
+                            : Icons.upload_file_rounded,
+                    size: 20,
+                    color: failed
+                        ? Colors.redAccent
+                        : const Color(0xFF68E0CF),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: InkWell(
+                      onTap: failed ? () => unawaited(onRetry(item)) : null,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            item.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          if (item.status == _ComposerAttachmentStatus.uploading)
+                            LinearProgressIndicator(value: item.progress)
+                          else
+                            Text(
+                              failed ? 'Tap to retry' : _formatBytes(item.sizeBytes),
+                              style: TextStyle(
+                                color: failed
+                                    ? Colors.redAccent
+                                    : Colors.white54,
+                                fontSize: 10,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Remove attachment',
+                    onPressed: () => unawaited(onRemove(item)),
+                    icon: const Icon(Icons.close_rounded, size: 17),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _MessageAttachmentTile extends StatelessWidget {
+  const _MessageAttachmentTile({
+    required this.attachment,
+    required this.onPressed,
+  });
+
+  final RoomAttachment attachment;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = attachment.isImage
+        ? Icons.image_outlined
+        : attachment.isVideo
+            ? Icons.movie_outlined
+            : Icons.insert_drive_file_outlined;
+
+    return Material(
+      color: const Color(0xFF13242B),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+          child: Row(
+            children: [
+              Icon(icon, size: 22, color: const Color(0xFF68E0CF)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      attachment.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _formatBytes(attachment.sizeBytes),
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.open_in_new_rounded,
+                size: 16,
+                color: Colors.white38,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  final kb = bytes / 1024;
+  if (kb < 1024) return '${kb.toStringAsFixed(kb < 10 ? 1 : 0)} KB';
+  final mb = kb / 1024;
+  return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
 }
 
 class _EncryptedComposerNotice extends StatelessWidget {
