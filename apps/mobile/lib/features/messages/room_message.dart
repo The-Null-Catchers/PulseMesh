@@ -1,5 +1,54 @@
 import 'dart:convert';
 
+class RoomAttachment {
+  const RoomAttachment({
+    required this.id,
+    required this.name,
+    required this.mimeType,
+    required this.sizeBytes,
+    required this.width,
+    required this.height,
+    required this.durationMs,
+    required this.hasThumbnail,
+  });
+
+  final String id;
+  final String name;
+  final String mimeType;
+  final int sizeBytes;
+  final int? width;
+  final int? height;
+  final int? durationMs;
+  final bool hasThumbnail;
+
+  bool get isImage => mimeType.startsWith('image/');
+  bool get isVideo => mimeType.startsWith('video/');
+
+  factory RoomAttachment.fromJson(Map<String, dynamic> json) {
+    int? optionalInt(Object? value) {
+      if (value == null) return null;
+      if (value is num) return value.toInt();
+      return int.tryParse(value.toString());
+    }
+
+    final rawSize = json['sizeBytes'];
+    return RoomAttachment(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? 'Attachment',
+      mimeType: json['mimeType'] as String? ??
+          json['declaredMimeType'] as String? ??
+          'application/octet-stream',
+      sizeBytes: rawSize is num
+          ? rawSize.toInt()
+          : int.tryParse(rawSize?.toString() ?? '') ?? 0,
+      width: optionalInt(json['width']),
+      height: optionalInt(json['height']),
+      durationMs: optionalInt(json['durationMs']),
+      hasThumbnail: json['hasThumbnail'] as bool? ?? false,
+    );
+  }
+}
+
 class RoomReaction {
   const RoomReaction({
     required this.emoji,
@@ -39,6 +88,7 @@ class RoomMessage {
     required this.encryptionVersion,
     required this.encryptedPayload,
     required this.replyToMessageId,
+    required this.attachments,
     required this.reactions,
   });
 
@@ -56,6 +106,7 @@ class RoomMessage {
   final String? encryptionVersion;
   final String? encryptedPayload;
   final String? replyToMessageId;
+  final List<RoomAttachment> attachments;
   final List<RoomReaction> reactions;
 
   bool get failed => status == 'failed';
@@ -76,6 +127,8 @@ class RoomMessage {
   factory RoomMessage.fromRow(Map<String, Object?> row) {
     final createdAt = row['created_at'] as String?;
     final editedAt = row['edited_at'] as String?;
+    final rawAttachments = row['attachments_json'] as String? ?? '[]';
+    final decodedAttachments = jsonDecode(rawAttachments) as List<dynamic>;
     final rawReactions = row['reactions_json'] as String? ?? '[]';
     final decodedReactions = jsonDecode(rawReactions) as List<dynamic>;
 
@@ -96,6 +149,14 @@ class RoomMessage {
       encryptionVersion: row['encryption_version'] as String?,
       encryptedPayload: row['encrypted_payload'] as String?,
       replyToMessageId: row['reply_to_message_id'] as String?,
+      attachments: decodedAttachments
+          .map(
+            (item) => RoomAttachment.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
+          .where((attachment) => attachment.id.isNotEmpty)
+          .toList(growable: false),
       reactions: decodedReactions
           .map(
             (item) => RoomReaction.fromJson(
