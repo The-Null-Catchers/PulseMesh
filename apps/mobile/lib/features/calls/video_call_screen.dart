@@ -32,6 +32,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   String? _selfParticipantId;
 
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  late final Future<void> _rendererInitialization;
   final Map<String, RTCVideoRenderer> _remoteRenderers = {};
 
   bool _rendererReady = false;
@@ -51,7 +52,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(_initializeRenderer());
+    _rendererInitialization = _initializeRenderer();
   }
 
   Future<void> _initializeRenderer() async {
@@ -78,10 +79,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   Future<void> _join() async {
     final data = _data;
-    if (data == null || !_rendererReady) {
-      if (!_rendererReady) {
-        await _initializeRenderer();
-      }
+    if (data == null) return;
+    if (!_rendererReady) {
+      await _rendererInitialization;
       if (!mounted) return;
     }
 
@@ -93,7 +93,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     String? startedCallId;
     try {
       final results = await Future.wait<Object>([
-        data!.callIceServers(),
+        data.callIceServers(),
         data.startConversationCall(
           widget.conversationId,
           kind: 'video',
@@ -102,6 +102,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       final iceServers = results[0] as List<Map<String, dynamic>>;
       final call = results[1] as ActiveCall;
       startedCallId = call.id;
+      if (call.kind != 'video') {
+        throw StateError(
+          'A voice call is already active in this conversation.',
+        );
+      }
 
       CallParticipant? self;
       for (final participant in call.participants) {
@@ -160,7 +165,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       setState(() => _loading = false);
     } catch (error) {
       if (startedCallId != null) {
-        unawaited(data!.leaveCall(startedCallId));
+        unawaited(data.leaveCall(startedCallId));
       }
       await _media?.leave();
       _media = null;
