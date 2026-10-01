@@ -106,7 +106,7 @@ class _RoomScreenState extends State<RoomScreen> {
 
     setState(() => _pickingAttachments = true);
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker().pickFiles(
         allowMultiple: true,
         withData: false,
       );
