@@ -486,10 +486,7 @@ class _VoiceStatusCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  participantCount.toString() +
-                      ' in room • ' +
-                      connectedPeers.toString() +
-                      ' remote streams',
+                  '${participantCount} in room • ${connectedPeers} remote streams',
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
               ],
@@ -515,7 +512,7 @@ class _ParticipantTile extends StatelessWidget {
     final label = participant.displayName.trim().isNotEmpty
         ? participant.displayName
         : participant.username.trim().isNotEmpty
-            ? '@' + participant.username
+            ? '@${participant.username}'
             : 'Member';
 
     return Padding(
@@ -533,7 +530,7 @@ class _ParticipantTile extends StatelessWidget {
           children: [
             Flexible(
               child: Text(
-                isSelf ? label + ' (You)' : label,
+                isSelf ? '${label} (You)' : label,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
