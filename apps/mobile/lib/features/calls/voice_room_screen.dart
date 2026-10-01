@@ -486,7 +486,7 @@ class _VoiceStatusCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  '${participantCount} in room • ${connectedPeers} remote streams',
+                  '$participantCount in room • $connectedPeers remote streams',
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
               ],
@@ -530,7 +530,7 @@ class _ParticipantTile extends StatelessWidget {
           children: [
             Flexible(
               child: Text(
-                isSelf ? '${label} (You)' : label,
+                isSelf ? '$label (You)' : label,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
