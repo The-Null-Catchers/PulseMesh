@@ -29,7 +29,8 @@ class VoiceRoomScreen extends StatefulWidget {
   State<VoiceRoomScreen> createState() => _VoiceRoomScreenState();
 }
 
-class _VoiceRoomScreenState extends State<VoiceRoomScreen>\n    with WidgetsBindingObserver {
+class _VoiceRoomScreenState extends State<VoiceRoomScreen>
+    with WidgetsBindingObserver {
   MobileDataController? _data;
   StreamSubscription<Map<String, dynamic>>? _events;
   FlutterMeshMediaSession? _media;
