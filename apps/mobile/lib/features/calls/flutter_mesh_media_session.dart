@@ -15,6 +15,36 @@ typedef PeerStateHandler = void Function(
   RTCPeerConnectionState state,
 );
 
+class PeerQualitySnapshot {
+  const PeerQualitySnapshot({
+    required this.roundTripTimeMs,
+    required this.packetLossPercent,
+    required this.jitterMs,
+  });
+
+  final double? roundTripTimeMs;
+  final double? packetLossPercent;
+  final double? jitterMs;
+
+  String get label {
+    final rtt = roundTripTimeMs;
+    final loss = packetLossPercent;
+    final jitter = jitterMs;
+
+    if ((rtt != null && rtt >= 450) ||
+        (loss != null && loss >= 8) ||
+        (jitter != null && jitter >= 60)) {
+      return 'Poor';
+    }
+    if ((rtt != null && rtt >= 220) ||
+        (loss != null && loss >= 3) ||
+        (jitter != null && jitter >= 30)) {
+      return 'Fair';
+    }
+    return 'Good';
+  }
+}
+
 class FlutterMeshMediaSession {
   FlutterMeshMediaSession({
     required this.iceServers,
@@ -134,6 +164,88 @@ class FlutterMeshMediaSession {
       for (final track in stream.getTracks()) {
         track.stop();
       }
+    }
+  }
+
+  Future<double?> sampleLocalAudioLevel() async {
+    final track = _audioTrack;
+    if (track == null || !track.enabled || _peers.isEmpty) return null;
+
+    for (final peer in _peers.values) {
+      try {
+        final reports = await peer.getStats(track);
+        double? level;
+        for (final report in reports) {
+          final raw = report.values['audioLevel'];
+          final value = raw is num
+              ? raw.toDouble()
+              : double.tryParse(raw?.toString() ?? '');
+          if (value != null && (level == null || value > level)) {
+            level = value;
+          }
+        }
+        if (level != null) return level;
+      } catch (_) {
+        // Try the next peer when one stats query is unavailable.
+      }
+    }
+    return null;
+  }
+
+  Future<PeerQualitySnapshot?> peerQuality(String participantId) async {
+    final peer = _peers[participantId];
+    if (peer == null) return null;
+
+    try {
+      final reports = await peer.getStats();
+      double? rttMs;
+      double? jitterMs;
+      num packetsLost = 0;
+      num packetsReceived = 0;
+
+      for (final report in reports) {
+        final values = report.values;
+        if (report.type == 'candidate-pair' &&
+            values['state']?.toString() == 'succeeded' &&
+            values['nominated'] == true) {
+          final rawRtt = values['currentRoundTripTime'];
+          final rtt = rawRtt is num
+              ? rawRtt.toDouble()
+              : double.tryParse(rawRtt?.toString() ?? '');
+          if (rtt != null) rttMs = rtt * 1000;
+        }
+
+        if (report.type == 'inbound-rtp') {
+          final lost = values['packetsLost'];
+          final received = values['packetsReceived'];
+          final jitter = values['jitter'];
+
+          if (lost is num) packetsLost += lost;
+          if (received is num) packetsReceived += received;
+
+          final jitterSeconds = jitter is num
+              ? jitter.toDouble()
+              : double.tryParse(jitter?.toString() ?? '');
+          if (jitterSeconds != null) {
+            final candidate = jitterSeconds * 1000;
+            if (jitterMs == null || candidate > jitterMs) {
+              jitterMs = candidate;
+            }
+          }
+        }
+      }
+
+      final total = packetsLost + packetsReceived;
+      final lossPercent =
+          total > 0 ? (packetsLost.toDouble() / total.toDouble()) * 100 : null;
+
+      return PeerQualitySnapshot(
+        roundTripTimeMs: rttMs,
+        packetLossPercent: lossPercent,
+        jitterMs: jitterMs,
+      );
+    } catch (_) {
+      return null;
     }
   }
 
