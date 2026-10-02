@@ -50,6 +50,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _cameraEnabled = true;
   bool _speaker = true;
   bool _switchingCamera = false;
+  bool _screenSharing = false;
+  bool _screenShareBusy = false;
   Object? _error;
   Timer? _telemetryTimer;
   Timer? _speakingExpiryTimer;
@@ -161,6 +163,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       await data.updateCallParticipant(
         call.id,
         cameraEnabled: true,
+        screenSharing: false,
         connectionState: 'connected',
       );
 
@@ -243,6 +246,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       await data.updateCallParticipant(
         call.id,
         cameraEnabled: _cameraEnabled,
+        screenSharing: _screenSharing,
         connectionState: 'connected',
       );
     } catch (_) {}
@@ -492,6 +496,54 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+  Future<void> _toggleScreenShare() async {
+    final data = _data;
+    final call = _call;
+    final media = _media;
+    if (data == null ||
+        call == null ||
+        media == null ||
+        _screenShareBusy) {
+      return;
+    }
+
+    setState(() => _screenShareBusy = true);
+    try {
+      if (_screenSharing) {
+        final cameraStream = await media.stopScreenShare();
+        _localRenderer.srcObject = cameraStream;
+        await data.updateCallParticipant(
+          call.id,
+          screenSharing: false,
+        );
+        if (mounted) {
+          setState(() => _screenSharing = false);
+        }
+      } else {
+        final screenStream = await media.startScreenShare();
+        _localRenderer.srcObject = screenStream;
+        await data.updateCallParticipant(
+          call.id,
+          screenSharing: true,
+        );
+        if (mounted) {
+          setState(() => _screenSharing = true);
+        }
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Screen sharing is not available or permission was denied.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _screenShareBusy = false);
+    }
+  }
+
   Future<void> _switchCamera() async {
     final media = _media;
     if (media == null || !_cameraEnabled || _switchingCamera) return;
@@ -631,12 +683,15 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                             muted: _muted,
                             deafened: _deafened,
                             cameraEnabled: _cameraEnabled,
+                            screenSharing: _screenSharing,
+                            screenShareBusy: _screenShareBusy,
                             speaker: _speaker,
                             switchingCamera: _switchingCamera,
                             leaving: _leaving,
                             onMute: _toggleMute,
                             onDeafen: _toggleDeafen,
                             onCamera: _toggleCamera,
+                            onScreenShare: _toggleScreenShare,
                             onSwitchCamera: _switchCamera,
                             onSpeaker: _toggleSpeaker,
                             onLeave: _leave,
@@ -679,6 +734,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           speaking: _speakingParticipants.contains(participant.id),
           peerState: _peerStates[participant.id],
           quality: _peerQuality[participant.id],
+          screenSharing: isSelf ? _screenSharing : participant.screenSharing,
         );
       },
     );
@@ -694,6 +750,7 @@ class _VideoParticipantTile extends StatelessWidget {
     required this.speaking,
     required this.peerState,
     required this.quality,
+    required this.screenSharing,
   });
 
   final CallParticipant participant;
@@ -703,6 +760,7 @@ class _VideoParticipantTile extends StatelessWidget {
   final bool speaking;
   final RTCPeerConnectionState? peerState;
   final PeerQualitySnapshot? quality;
+  final bool screenSharing;
 
   @override
   Widget build(BuildContext context) {
@@ -783,6 +841,7 @@ class _VideoParticipantTile extends StatelessWidget {
               isSelf: isSelf,
               peerState: peerState,
               quality: quality,
+              screenSharing: screenSharing,
             ),
           ),
         ],
@@ -798,18 +857,22 @@ class _QualityBadge extends StatelessWidget {
     required this.isSelf,
     required this.peerState,
     required this.quality,
+    required this.screenSharing,
   });
 
   final bool speaking;
   final bool isSelf;
   final RTCPeerConnectionState? peerState;
   final PeerQualitySnapshot? quality;
+  final bool screenSharing;
 
   @override
   Widget build(BuildContext context) {
     final label = speaking
         ? 'Speaking'
-        : !isSelf &&
+        : screenSharing
+            ? 'Sharing screen'
+            : !isSelf &&
                 peerState == RTCPeerConnectionState.RTCPeerConnectionStateFailed
             ? 'Retrying'
             : !isSelf &&
@@ -842,12 +905,15 @@ class _VideoControls extends StatelessWidget {
     required this.muted,
     required this.deafened,
     required this.cameraEnabled,
+    required this.screenSharing,
+    required this.screenShareBusy,
     required this.speaker,
     required this.switchingCamera,
     required this.leaving,
     required this.onMute,
     required this.onDeafen,
     required this.onCamera,
+    required this.onScreenShare,
     required this.onSwitchCamera,
     required this.onSpeaker,
     required this.onLeave,
@@ -856,12 +922,15 @@ class _VideoControls extends StatelessWidget {
   final bool muted;
   final bool deafened;
   final bool cameraEnabled;
+  final bool screenSharing;
+  final bool screenShareBusy;
   final bool speaker;
   final bool switchingCamera;
   final bool leaving;
   final Future<void> Function() onMute;
   final Future<void> Function() onDeafen;
   final Future<void> Function() onCamera;
+  final Future<void> Function() onScreenShare;
   final Future<void> Function() onSwitchCamera;
   final Future<void> Function() onSpeaker;
   final Future<void> Function() onLeave;
@@ -899,6 +968,16 @@ class _VideoControls extends StatelessWidget {
               label: 'Flip',
               onPressed:
                   cameraEnabled && !switchingCamera ? onSwitchCamera : null,
+            ),
+            _Control(
+              icon: screenShareBusy
+                  ? Icons.sync_rounded
+                  : screenSharing
+                      ? Icons.stop_screen_share_outlined
+                      : Icons.screen_share_outlined,
+              label: screenSharing ? 'Stop share' : 'Share',
+              active: screenSharing,
+              onPressed: screenShareBusy ? null : onScreenShare,
             ),
             _Control(
               icon: speaker ? Icons.volume_up_rounded : Icons.hearing_rounded,
