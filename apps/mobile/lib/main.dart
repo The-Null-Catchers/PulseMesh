@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'auth/auth_bootstrap.dart';
 import 'auth/auth_session_controller.dart';
 import 'config/app_config.dart';
+import 'features/calls/video_call_screen.dart';
 import 'features/calls/voice_room_screen.dart';
 import 'features/inbox/inbox_models.dart';
 import 'features/inbox/inbox_realtime.dart';
@@ -101,6 +103,38 @@ final router = GoRouter(
       },
     ),
     GoRoute(
+      path: '/call/video/:callId',
+      builder: (context, state) {
+        final callId = state.pathParameters['callId']!;
+        final conversationId = state.uri.queryParameters['conversationId'];
+        final title = state.uri.queryParameters['title'] ?? 'Video call';
+        if (conversationId == null) {
+          return const PlaceholderScreen(title: 'Call unavailable');
+        }
+        return VideoCallScreen(
+          conversationId: conversationId,
+          title: title,
+          existingCallId: callId,
+        );
+      },
+    ),
+    GoRoute(
+      path: '/call/voice/:callId',
+      builder: (context, state) {
+        final callId = state.pathParameters['callId']!;
+        final conversationId = state.uri.queryParameters['conversationId'];
+        final title = state.uri.queryParameters['title'] ?? 'Voice call';
+        if (conversationId == null) {
+          return const PlaceholderScreen(title: 'Call unavailable');
+        }
+        return VoiceRoomScreen(
+          conversationId: conversationId,
+          title: title,
+          existingCallId: callId,
+        );
+      },
+    ),
+    GoRoute(
       path: '/room/:kind/:id',
       builder: (context, state) {
         final kind = state.pathParameters['kind'];
@@ -131,8 +165,365 @@ class PulseMeshApp extends StatelessWidget {
       title: 'PulseMesh',
       theme: buildPulseMeshTheme(),
       routerConfig: router,
+      builder: (context, child) {
+        return _IncomingCallHost(
+          data: MobileDataScope.of(context),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
   }
+}
+
+class _IncomingCallHost extends StatefulWidget {
+  const _IncomingCallHost({
+    required this.data,
+    required this.child,
+  });
+
+  final MobileDataController data;
+  final Widget child;
+
+  @override
+  State<_IncomingCallHost> createState() => _IncomingCallHostState();
+}
+
+class _IncomingCallHostState extends State<_IncomingCallHost>
+    with WidgetsBindingObserver {
+  StreamSubscription<Map<String, dynamic>>? _events;
+  final Set<String> _seenCallIds = <String>{};
+  _IncomingCallNotice? _incoming;
+  _IncomingCallNotice? _pending;
+  AppLifecycleState _lifecycle =
+      WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _subscribe();
+  }
+
+  @override
+  void didUpdateWidget(covariant _IncomingCallHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.data, widget.data)) {
+      _events?.cancel();
+      _subscribe();
+    }
+  }
+
+  void _subscribe() {
+    _events = widget.data.realtimeEvents.listen(_handleRealtimeEvent);
+  }
+
+  void _handleRealtimeEvent(Map<String, dynamic> event) {
+    final type = event['type'] as String?;
+    final payloadValue = event['payload'];
+    if (payloadValue is! Map) return;
+    final payload = Map<String, dynamic>.from(payloadValue);
+
+    if (type == 'call.started') {
+      final callId = payload['callId'] as String?;
+      final conversationId = payload['conversationId'] as String?;
+      final kind = payload['kind'] as String?;
+      if (callId == null ||
+          conversationId == null ||
+          (kind != 'voice' && kind != 'video') ||
+          _seenCallIds.contains(callId)) {
+        return;
+      }
+      _seenCallIds.add(callId);
+      unawaited(
+        _resolveIncomingCall(
+          callId: callId,
+          conversationId: conversationId,
+          kind: kind!,
+        ),
+      );
+      return;
+    }
+
+    if (type == 'call.ended') {
+      final callId = payload['callId'] as String?;
+      if (callId == null) return;
+      if (_incoming?.callId == callId || _pending?.callId == callId) {
+        if (mounted) {
+          setState(() {
+            if (_incoming?.callId == callId) _incoming = null;
+            if (_pending?.callId == callId) _pending = null;
+          });
+        }
+      }
+    }
+  }
+
+  Future<void> _resolveIncomingCall({
+    required String callId,
+    required String conversationId,
+    required String kind,
+  }) async {
+    try {
+      final call = await widget.data.refreshCall(callId);
+      if (!mounted ||
+          call.status != 'active' ||
+          call.createdBy == widget.data.currentUserId) {
+        return;
+      }
+
+      final notice = _IncomingCallNotice(
+        callId: callId,
+        conversationId: conversationId,
+        kind: kind,
+        title: _incomingConversationTitle(
+          widget.data,
+          conversationId,
+          call.createdBy,
+        ),
+      );
+
+      if (_lifecycle == AppLifecycleState.resumed) {
+        setState(() => _incoming = notice);
+        unawaited(HapticFeedback.mediumImpact());
+      } else {
+        setState(() => _pending = notice);
+      }
+    } catch (_) {
+      // A replayed call.started event may refer to a call that already ended.
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycle = state;
+
+    if (state != AppLifecycleState.resumed) {
+      final incoming = _incoming;
+      if (incoming != null && mounted) {
+        setState(() {
+          _pending = incoming;
+          _incoming = null;
+        });
+      }
+      return;
+    }
+
+    final pending = _pending;
+    if (pending != null) {
+      unawaited(_restorePending(pending));
+    }
+  }
+
+  Future<void> _restorePending(_IncomingCallNotice pending) async {
+    try {
+      final call = await widget.data.refreshCall(pending.callId);
+      if (!mounted) return;
+
+      if (call.status != 'active') {
+        setState(() {
+          if (_pending?.callId == pending.callId) _pending = null;
+        });
+        return;
+      }
+
+      setState(() {
+        _pending = null;
+        _incoming = pending;
+      });
+      unawaited(HapticFeedback.mediumImpact());
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        if (_pending?.callId == pending.callId) _pending = null;
+      });
+    }
+  }
+
+  void _decline() {
+    setState(() => _incoming = null);
+  }
+
+  void _accept() {
+    final incoming = _incoming;
+    if (incoming == null) return;
+
+    setState(() => _incoming = null);
+    final encodedConversation = Uri.encodeComponent(incoming.conversationId);
+    final encodedTitle = Uri.encodeComponent(incoming.title);
+    final path = incoming.kind == 'video'
+        ? '/call/video/${incoming.callId}'
+        : '/call/voice/${incoming.callId}';
+
+    unawaited(
+      router.push(
+        '$path?conversationId=$encodedConversation&title=$encodedTitle',
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _events?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final incoming = _incoming;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        widget.child,
+        if (incoming != null)
+          Positioned(
+            left: 12,
+            right: 12,
+            top: 12,
+            child: SafeArea(
+              bottom: false,
+              child: _IncomingCallCard(
+                notice: incoming,
+                onAccept: _accept,
+                onDecline: _decline,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _IncomingCallNotice {
+  const _IncomingCallNotice({
+    required this.callId,
+    required this.conversationId,
+    required this.kind,
+    required this.title,
+  });
+
+  final String callId;
+  final String conversationId;
+  final String kind;
+  final String title;
+}
+
+class _IncomingCallCard extends StatelessWidget {
+  const _IncomingCallCard({
+    required this.notice,
+    required this.onAccept,
+    required this.onDecline,
+  });
+
+  final _IncomingCallNotice notice;
+  final VoidCallback onAccept;
+  final VoidCallback onDecline;
+
+  @override
+  Widget build(BuildContext context) {
+    final video = notice.kind == 'video';
+
+    return Material(
+      elevation: 18,
+      color: const Color(0xFF0C191F),
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0x5568E0CF)),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 25,
+              backgroundColor: const Color(0xFF173A3A),
+              child: Icon(
+                video ? Icons.videocam_rounded : Icons.call_rounded,
+                color: const Color(0xFF68E0CF),
+              ),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    video ? 'Incoming video call' : 'Incoming voice call',
+                    style: const TextStyle(
+                      color: Color(0xFF9AF5E8),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    notice.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton.filled(
+              tooltip: 'Decline',
+              onPressed: onDecline,
+              style: IconButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+              icon: const Icon(Icons.call_end_rounded),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              tooltip: 'Accept',
+              onPressed: onAccept,
+              style: IconButton.styleFrom(
+                backgroundColor: const Color(0xFF68E0CF),
+                foregroundColor: Colors.black,
+              ),
+              icon: Icon(
+                video ? Icons.videocam_rounded : Icons.call_rounded,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _incomingConversationTitle(
+  MobileDataController data,
+  String conversationId,
+  String creatorId,
+) {
+  for (final conversation in data.inbox.conversations) {
+    if (conversation.id != conversationId) continue;
+
+    final name = conversation.name?.trim();
+    if (name != null && name.isNotEmpty) return name;
+
+    for (final member in conversation.members) {
+      if (member.id != creatorId) continue;
+      if (member.displayName.trim().isNotEmpty) {
+        return member.displayName.trim();
+      }
+      if (member.username.trim().isNotEmpty) {
+        return '@${member.username.trim()}';
+      }
+    }
+
+    return conversation.kind == 'group'
+        ? 'Group conversation'
+        : 'Direct message';
+  }
+
+  return 'PulseMesh call';
 }
 
 class AppShell extends StatelessWidget {
