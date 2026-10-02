@@ -56,6 +56,9 @@ class FlutterMeshMediaSession {
 
   MediaStreamTrack? _audioTrack;
   MediaStreamTrack? _cameraTrack;
+  MediaStreamTrack? _screenTrack;
+  MediaStream? _cameraStream;
+  MediaStream? _screenStream;
   final Map<String, RTCPeerConnection> _peers = {};
   final Map<String, MediaStream> _remoteStreams = {};
   bool _deafened = false;
@@ -113,12 +116,15 @@ class FlutterMeshMediaSession {
     _cameraTrack?.stop();
     _cameraTrack = tracks.first;
     _cameraTrack!.enabled = !wasDisabled;
+    _cameraStream = stream;
 
-    await _replaceTrackForAllPeers(
-      kind: 'video',
-      track: _cameraTrack!,
-      stream: stream,
-    );
+    if (_screenTrack == null) {
+      await _replaceTrackForAllPeers(
+        kind: 'video',
+        track: _cameraTrack!,
+        stream: stream,
+      );
+    }
     return stream;
   }
 
@@ -309,6 +315,50 @@ class FlutterMeshMediaSession {
     await Helper.switchCamera(track);
   }
 
+  Future<MediaStream> startScreenShare() async {
+    final stream = await navigator.mediaDevices.getDisplayMedia({
+      'video': true,
+      'audio': false,
+    });
+
+    final tracks = stream.getVideoTracks();
+    if (tracks.isEmpty) {
+      for (final track in stream.getTracks()) {
+        track.stop();
+      }
+      throw StateError('Screen capture did not produce a video track');
+    }
+
+    _screenTrack?.stop();
+    _screenTrack = tracks.first;
+    _screenStream = stream;
+
+    await _replaceTrackForAllPeers(
+      kind: 'video',
+      track: _screenTrack!,
+      stream: stream,
+    );
+    return stream;
+  }
+
+  Future<MediaStream?> stopScreenShare() async {
+    _screenTrack?.stop();
+    _screenTrack = null;
+    _screenStream = null;
+
+    final cameraTrack = _cameraTrack;
+    final cameraStream = _cameraStream;
+    if (cameraTrack != null && cameraStream != null) {
+      await _replaceTrackForAllPeers(
+        kind: 'video',
+        track: cameraTrack,
+        stream: cameraStream,
+      );
+    }
+
+    return cameraStream;
+  }
+
   Future<void> leave() async {
     for (final peer in _peers.values) {
       await peer.close();
@@ -324,8 +374,12 @@ class FlutterMeshMediaSession {
 
     _audioTrack?.stop();
     _cameraTrack?.stop();
+    _screenTrack?.stop();
     _audioTrack = null;
     _cameraTrack = null;
+    _screenTrack = null;
+    _cameraStream = null;
+    _screenStream = null;
   }
 
   Future<RTCPeerConnection> _ensurePeer(
@@ -347,13 +401,10 @@ class FlutterMeshMediaSession {
       await peer.addTrack(audioTrack, stream);
     }
 
-    final cameraTrack = _cameraTrack;
-    if (cameraTrack != null) {
-      final stream = await createLocalMediaStream(
-        'pulsemesh-video-$participantId',
-      );
-      await stream.addTrack(cameraTrack);
-      await peer.addTrack(cameraTrack, stream);
+    final videoTrack = _screenTrack ?? _cameraTrack;
+    final videoStream = _screenStream ?? _cameraStream;
+    if (videoTrack != null && videoStream != null) {
+      await peer.addTrack(videoTrack, videoStream);
     }
 
     peer.onIceCandidate = (candidate) {
