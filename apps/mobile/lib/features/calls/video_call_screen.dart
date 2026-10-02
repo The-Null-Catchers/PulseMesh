@@ -721,8 +721,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         final renderer =
             isSelf ? _localRenderer : _remoteRenderers[participant.id];
         final showVideo = isSelf
-            ? _cameraEnabled && _localRenderer.srcObject != null
-            : participant.cameraEnabled &&
+            ? (_cameraEnabled || _screenSharing) &&
+                _localRenderer.srcObject != null
+            : (participant.cameraEnabled || participant.screenSharing) &&
                 renderer != null &&
                 renderer.srcObject != null;
 
