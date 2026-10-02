@@ -10,16 +10,23 @@ typedef RemoteStreamHandler = void Function(
   MediaStream stream,
 );
 
+typedef PeerStateHandler = void Function(
+  String participantId,
+  RTCPeerConnectionState state,
+);
+
 class FlutterMeshMediaSession {
   FlutterMeshMediaSession({
     required this.iceServers,
     required this.sendSignal,
     this.onRemoteStream,
+    this.onPeerState,
   });
 
   final List<Map<String, dynamic>> iceServers;
   final SignalSender sendSignal;
   final RemoteStreamHandler? onRemoteStream;
+  final PeerStateHandler? onPeerState;
 
   MediaStreamTrack? _audioTrack;
   MediaStreamTrack? _cameraTrack;
@@ -105,6 +112,28 @@ class FlutterMeshMediaSession {
         'kind': 'offer',
         'sdp': sdp,
       });
+    }
+  }
+
+  Future<void> reconnectPeer(
+    String participantId, {
+    required bool initiator,
+  }) async {
+    await removePeer(participantId);
+    await connectPeer(participantId, initiator: initiator);
+  }
+
+  Future<void> removePeer(String participantId) async {
+    final peer = _peers.remove(participantId);
+    if (peer != null) {
+      await peer.close();
+    }
+
+    final stream = _remoteStreams.remove(participantId);
+    if (stream != null) {
+      for (final track in stream.getTracks()) {
+        track.stop();
+      }
     }
   }
 
@@ -240,6 +269,10 @@ class FlutterMeshMediaSession {
         'sdpMid': candidate.sdpMid,
         'sdpMLineIndex': candidate.sdpMLineIndex,
       });
+    };
+
+    peer.onConnectionState = (state) {
+      onPeerState?.call(participantId, state);
     };
 
     peer.onTrack = (event) {
