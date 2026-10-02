@@ -102,6 +102,7 @@ abstract interface class CallTransport {
     required String kind,
   });
   Future<ActiveCall> refreshCall(String callId);
+  Future<ActiveCall> joinCall(String callId);
   Future<CallParticipant> updateParticipant(
     String callId, {
     bool? muted,
@@ -175,6 +176,20 @@ class DioCallTransport implements CallTransport {
       options: await _options(),
     );
     return ActiveCall.fromJson(response.data ?? const {});
+  }
+
+  @override
+  Future<ActiveCall> joinCall(String callId) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/calls/$callId/join',
+      data: const <String, dynamic>{},
+      options: await _options(),
+    );
+    final call = response.data?['call'];
+    if (call is! Map) {
+      throw StateError('Call join response did not include call data');
+    }
+    return ActiveCall.fromJson(Map<String, dynamic>.from(call));
   }
 
   @override
