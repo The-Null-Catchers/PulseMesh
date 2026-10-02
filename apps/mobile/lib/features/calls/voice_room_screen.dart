@@ -50,11 +50,6 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   Timer? _speakingExpiryTimer;
   Timer? _qualityTimer;
   bool _localSpeaking = false;
-  final Set<String> _speakingParticipants = <String>{};
-  final Map<String, String> _peerStates = <String, String>{};
-  final Map<String, Timer> _speakingTimers = <String, Timer>{};
-  final Set<String> _recoveringPeers = <String>{};
-
   RoomRef get _room =>
       RoomRef(kind: RoomKind.channel, id: widget.channelId);
 
@@ -118,15 +113,6 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
           setState(() => _remoteStreamParticipants.add(participantId));
         },
         onPeerState: _handlePeerState,
-        onPeerState: (participantId, state) {
-          if (!mounted) return;
-          final label = state.toString().split('.').last;
-          setState(() => _peerStates[participantId] = label);
-          if (label.toLowerCase().contains('failed') ||
-              label.toLowerCase().contains('disconnected')) {
-            unawaited(_recoverPeer(participantId));
-          }
-        },
       );
 
       _media = media;
@@ -162,8 +148,8 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
       _speakingMonitorTimer?.cancel();
       _qualityTimer?.cancel();
       _speakingExpiryTimer?.cancel();
-      if (_localSpeaking && call != null) {
-        data?.sendCallSpeaking(callId: call.id, speaking: false);
+      if (_localSpeaking && startedCallId != null) {
+        data.sendCallSpeaking(callId: startedCallId, speaking: false);
       }
       await _media?.leave();
       _media = null;
@@ -228,8 +214,9 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         _peerStates.remove(id);
         _remoteStreamParticipants.remove(id);
         _speakingParticipants.remove(id);
-        _speakingTimers.remove(id)?.cancel();
-        await media?.removePeer(id);
+        _speakingExpiresAt.remove(id);
+        _peerQuality.remove(id);
+        await media.removePeer(id);
       }
       if (!mounted) return;
       setState(() => _call = refreshed);
@@ -249,58 +236,6 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     } catch (_) {}
   }
 
-  Future<void> _recoverPeer(String participantId) async {
-    final media = _media;
-    final selfId = _selfParticipantId;
-    if (media == null ||
-        selfId == null ||
-        _recoveringPeers.contains(participantId)) {
-      return;
-    }
-
-    _recoveringPeers.add(participantId);
-    try {
-      await media.reconnectPeer(
-        participantId,
-        initiator: selfId.compareTo(participantId) < 0,
-      );
-    } catch (_) {
-      // Realtime/session recovery can retry this peer later.
-    } finally {
-      _recoveringPeers.remove(participantId);
-    }
-  }
-
-  void _setSpeaking(String participantId, bool speaking, String? expiresAt) {
-    _speakingTimers.remove(participantId)?.cancel();
-
-    if (!speaking) {
-      if (mounted) {
-        setState(() => _speakingParticipants.remove(participantId));
-      }
-      return;
-    }
-
-    if (mounted) {
-      setState(() => _speakingParticipants.add(participantId));
-    }
-
-    final expiry = expiresAt == null
-        ? DateTime.now().toUtc().add(const Duration(seconds: 3))
-        : DateTime.tryParse(expiresAt)?.toUtc() ??
-            DateTime.now().toUtc().add(const Duration(seconds: 3));
-    final delay = expiry.difference(DateTime.now().toUtc());
-    _speakingTimers[participantId] = Timer(
-      delay.isNegative ? Duration.zero : delay,
-      () {
-        _speakingTimers.remove(participantId);
-        if (mounted) {
-          setState(() => _speakingParticipants.remove(participantId));
-        }
-      },
-    );
-  }
-
   void _handleRealtimeEvent(Map<String, dynamic> event) {
     final call = _call;
     if (call == null) return;
@@ -311,18 +246,6 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     final payload = Map<String, dynamic>.from(payloadValue);
 
     if (payload['callId'] != call.id) return;
-
-    if (type == 'call.speaking') {
-      final participantId = payload['participantId'] as String?;
-      if (participantId != null) {
-        _setSpeaking(
-          participantId,
-          payload['speaking'] as bool? ?? false,
-          payload['expiresAt'] as String?,
-        );
-      }
-      return;
-    }
 
     if (type == 'call.signal') {
       final fromParticipantId = payload['fromParticipantId'] as String?;
@@ -596,10 +519,6 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
 
   @override
   void dispose() {
-    for (final timer in _speakingTimers.values) {
-      timer.cancel();
-    }
-    _speakingTimers.clear();
     _events?.cancel();
     _speakingMonitorTimer?.cancel();
     _qualityTimer?.cancel();
@@ -681,6 +600,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                                         speaking: _speakingParticipants
                                             .contains(participant.id),
                                         peerState: _peerStates[participant.id],
+                                        quality: _peerQuality[participant.id],
                                       );
                                     },
                                   ),
@@ -759,12 +679,14 @@ class _ParticipantTile extends StatelessWidget {
     required this.isSelf,
     required this.speaking,
     required this.peerState,
+    required this.quality,
   });
 
   final CallParticipant participant;
   final bool isSelf;
   final bool speaking;
-  final String? peerState;
+  final RTCPeerConnectionState? peerState;
+  final PeerQualitySnapshot? quality;
 
   @override
   Widget build(BuildContext context) {
@@ -810,11 +732,13 @@ class _ParticipantTile extends StatelessWidget {
           ],
         ),
         subtitle: Text(
-          speaking
-              ? 'Speaking'
-              : peerState == null
-                  ? participant.connectionState
-                  : '${participant.connectionState} • $peerState',
+          _participantStatus(
+            participant,
+            peerState: peerState,
+            quality: quality,
+            speaking: speaking,
+            isSelf: isSelf,
+          ),
           style: TextStyle(
             color: speaking ? const Color(0xFF68E0CF) : Colors.white54,
             fontSize: 11,
