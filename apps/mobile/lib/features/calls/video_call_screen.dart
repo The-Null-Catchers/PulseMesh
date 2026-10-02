@@ -55,6 +55,7 @@ class _VideoCallScreenState extends State<VideoCallScreen>
   bool _switchingCamera = false;
   bool _screenSharing = false;
   bool _screenShareBusy = false;
+  bool _resumeCameraAfterBackground = false;
   Object? _error;
   Timer? _telemetryTimer;
   Timer? _speakingExpiryTimer;
