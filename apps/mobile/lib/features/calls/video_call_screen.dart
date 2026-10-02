@@ -561,6 +561,144 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+  Future<void> _showMediaDevices() async {
+    final media = _media;
+    if (media == null) return;
+
+    try {
+      final devices = await media.mediaDevices();
+      final microphones = devices
+          .where((device) => device.kind == 'audioinput')
+          .toList(growable: false);
+      final cameras = devices
+          .where((device) => device.kind == 'videoinput')
+          .toList(growable: false);
+
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        backgroundColor: const Color(0xFF071015),
+        builder: (sheetContext) => SafeArea(
+          top: false,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.72,
+            ),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                const ListTile(
+                  title: Text(
+                    'Call devices',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                const ListTile(
+                  dense: true,
+                  leading: Icon(Icons.mic_outlined),
+                  title: Text('Microphones'),
+                ),
+                if (microphones.isEmpty)
+                  const ListTile(title: Text('No microphones found.')),
+                for (var index = 0; index < microphones.length; index += 1)
+                  ListTile(
+                    title: Text(
+                      microphones[index].label.isEmpty
+                          ? 'Microphone ${index + 1}'
+                          : microphones[index].label,
+                    ),
+                    onTap: () async {
+                      Navigator.pop(sheetContext);
+                      await _selectMicrophone(microphones[index]);
+                    },
+                  ),
+                const Divider(),
+                const ListTile(
+                  dense: true,
+                  leading: Icon(Icons.videocam_outlined),
+                  title: Text('Cameras'),
+                ),
+                if (cameras.isEmpty)
+                  const ListTile(title: Text('No cameras found.')),
+                for (var index = 0; index < cameras.length; index += 1)
+                  ListTile(
+                    title: Text(
+                      cameras[index].label.isEmpty
+                          ? 'Camera ${index + 1}'
+                          : cameras[index].label,
+                    ),
+                    onTap: () async {
+                      Navigator.pop(sheetContext);
+                      await _selectCamera(cameras[index]);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load call devices.')),
+      );
+    }
+  }
+
+  Future<void> _selectMicrophone(MediaDeviceInfo device) async {
+    final media = _media;
+    if (media == null) return;
+
+    try {
+      await media.selectMicrophone(device.deviceId);
+      media.setMuted(_muted);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            device.label.isEmpty
+                ? 'Microphone changed.'
+                : 'Using ${device.label}.',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not switch microphone.')),
+      );
+    }
+  }
+
+  Future<void> _selectCamera(MediaDeviceInfo device) async {
+    final media = _media;
+    if (media == null) return;
+
+    try {
+      final stream = await media.selectCamera(device.deviceId);
+      if (!_screenSharing) {
+        _localRenderer.srcObject = stream;
+      }
+      media.setCameraEnabled(_cameraEnabled);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            device.label.isEmpty ? 'Camera changed.' : 'Using ${device.label}.',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not switch camera.')),
+      );
+    }
+  }
+
   Future<void> _toggleSpeaker() async {
     final next = !_speaker;
     try {
@@ -691,6 +829,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                             onMute: _toggleMute,
                             onDeafen: _toggleDeafen,
                             onCamera: _toggleCamera,
+                            onDevices: _showMediaDevices,
                             onScreenShare: _toggleScreenShare,
                             onSwitchCamera: _switchCamera,
                             onSpeaker: _toggleSpeaker,
@@ -914,6 +1053,7 @@ class _VideoControls extends StatelessWidget {
     required this.onMute,
     required this.onDeafen,
     required this.onCamera,
+    required this.onDevices,
     required this.onScreenShare,
     required this.onSwitchCamera,
     required this.onSpeaker,
@@ -931,6 +1071,7 @@ class _VideoControls extends StatelessWidget {
   final Future<void> Function() onMute;
   final Future<void> Function() onDeafen;
   final Future<void> Function() onCamera;
+  final Future<void> Function() onDevices;
   final Future<void> Function() onScreenShare;
   final Future<void> Function() onSwitchCamera;
   final Future<void> Function() onSpeaker;
@@ -979,6 +1120,11 @@ class _VideoControls extends StatelessWidget {
               label: screenSharing ? 'Stop share' : 'Share',
               active: screenSharing,
               onPressed: screenShareBusy ? null : onScreenShare,
+            ),
+            _Control(
+              icon: Icons.tune_rounded,
+              label: 'Devices',
+              onPressed: onDevices,
             ),
             _Control(
               icon: speaker ? Icons.volume_up_rounded : Icons.hearing_rounded,
