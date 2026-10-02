@@ -308,8 +308,8 @@ class FlutterMeshMediaSession {
     await startAudio(deviceId: deviceId);
   }
 
-  Future<void> selectCamera(String deviceId) async {
-    await startCamera(deviceId: deviceId);
+  Future<MediaStream> selectCamera(String deviceId) {
+    return startCamera(deviceId: deviceId);
   }
 
   Future<void> switchCamera() async {
