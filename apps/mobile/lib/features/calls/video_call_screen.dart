@@ -45,6 +45,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _switchingCamera = false;
   Object? _error;
   MobileRealtimeState? _lastRealtimeState;
+  final Set<String> _speakingParticipants = <String>{};
+  final Map<String, String> _peerStates = <String, String>{};
+  final Map<String, Timer> _speakingTimers = <String, Timer>{};
+  final Set<String> _recoveringPeers = <String>{};
 
   RoomRef get _room =>
       RoomRef(kind: RoomKind.conversation, id: widget.conversationId);
@@ -130,6 +134,15 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         },
         onRemoteStream: (participantId, stream) {
           unawaited(_attachRemoteStream(participantId, stream));
+        },
+        onPeerState: (participantId, state) {
+          if (!mounted) return;
+          final label = state.toString().split('.').last;
+          setState(() => _peerStates[participantId] = label);
+          if (label.toLowerCase().contains('failed') ||
+              label.toLowerCase().contains('disconnected')) {
+            unawaited(_recoverPeer(participantId));
+          }
         },
       );
 
@@ -235,6 +248,58 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     } catch (_) {}
   }
 
+  Future<void> _recoverPeer(String participantId) async {
+    final media = _media;
+    final selfId = _selfParticipantId;
+    if (media == null ||
+        selfId == null ||
+        _recoveringPeers.contains(participantId)) {
+      return;
+    }
+
+    _recoveringPeers.add(participantId);
+    try {
+      await media.reconnectPeer(
+        participantId,
+        initiator: selfId.compareTo(participantId) < 0,
+      );
+    } catch (_) {
+      // Realtime/session recovery can retry this peer later.
+    } finally {
+      _recoveringPeers.remove(participantId);
+    }
+  }
+
+  void _setSpeaking(String participantId, bool speaking, String? expiresAt) {
+    _speakingTimers.remove(participantId)?.cancel();
+
+    if (!speaking) {
+      if (mounted) {
+        setState(() => _speakingParticipants.remove(participantId));
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() => _speakingParticipants.add(participantId));
+    }
+
+    final expiry = expiresAt == null
+        ? DateTime.now().toUtc().add(const Duration(seconds: 3))
+        : DateTime.tryParse(expiresAt)?.toUtc() ??
+            DateTime.now().toUtc().add(const Duration(seconds: 3));
+    final delay = expiry.difference(DateTime.now().toUtc());
+    _speakingTimers[participantId] = Timer(
+      delay.isNegative ? Duration.zero : delay,
+      () {
+        _speakingTimers.remove(participantId);
+        if (mounted) {
+          setState(() => _speakingParticipants.remove(participantId));
+        }
+      },
+    );
+  }
+
   void _handleRealtimeEvent(Map<String, dynamic> event) {
     final call = _call;
     if (call == null) return;
@@ -245,6 +310,18 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     final payload = Map<String, dynamic>.from(payloadValue);
 
     if (payload['callId'] != call.id) return;
+
+    if (type == 'call.speaking') {
+      final participantId = payload['participantId'] as String?;
+      if (participantId != null) {
+        _setSpeaking(
+          participantId,
+          payload['speaking'] as bool? ?? false,
+          payload['expiresAt'] as String?,
+        );
+      }
+      return;
+    }
 
     if (type == 'call.signal') {
       final fromParticipantId = payload['fromParticipantId'] as String?;
@@ -291,6 +368,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         final renderer = _remoteRenderers.remove(id);
         renderer?.srcObject = null;
         await renderer?.dispose();
+        _peerStates.remove(id);
+        _speakingParticipants.remove(id);
+        _speakingTimers.remove(id)?.cancel();
+        await media?.removePeer(id);
       }
 
       if (!mounted) return;
@@ -433,6 +514,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   @override
   void dispose() {
+    for (final timer in _speakingTimers.values) {
+      timer.cancel();
+    }
+    _speakingTimers.clear();
     _events?.cancel();
     final data = _data;
     data?.removeListener(_onDataChanged);
@@ -536,6 +621,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           renderer: renderer,
           showVideo: showVideo,
           isSelf: isSelf,
+          speaking: _speakingParticipants.contains(participant.id),
+          peerState: _peerStates[participant.id],
         );
       },
     );
@@ -548,12 +635,16 @@ class _VideoParticipantTile extends StatelessWidget {
     required this.renderer,
     required this.showVideo,
     required this.isSelf,
+    required this.speaking,
+    required this.peerState,
   });
 
   final CallParticipant participant;
   final RTCVideoRenderer? renderer;
   final bool showVideo;
   final bool isSelf;
+  final bool speaking;
+  final String? peerState;
 
   @override
   Widget build(BuildContext context) {
@@ -563,9 +654,18 @@ class _VideoParticipantTile extends StatelessWidget {
             ? '@${participant.username}'
             : 'Member';
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: Stack(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: speaking ? const Color(0xFF68E0CF) : Colors.transparent,
+          width: speaking ? 3 : 1,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
         fit: StackFit.expand,
         children: [
           ColoredBox(
@@ -589,6 +689,42 @@ class _VideoParticipantTile extends StatelessWidget {
                       ),
                     ),
                   ),
+          ),
+          Positioned(
+            left: 10,
+            right: 10,
+            top: 9,
+            child: Row(
+              children: [
+                if (speaking)
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Color(0xCC153D37),
+                      borderRadius: BorderRadius.all(Radius.circular(999)),
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Text(
+                        'Speaking',
+                        style: TextStyle(
+                          color: Color(0xFF9AF5E8),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                const Spacer(),
+                if (!isSelf && peerState != null)
+                  Text(
+                    peerState!,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 9,
+                    ),
+                  ),
+              ],
+            ),
           ),
           Positioned(
             left: 10,
@@ -619,6 +755,7 @@ class _VideoParticipantTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }
