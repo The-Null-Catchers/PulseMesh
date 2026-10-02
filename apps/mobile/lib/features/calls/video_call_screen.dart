@@ -34,6 +34,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   late final Future<void> _rendererInitialization;
   final Map<String, RTCVideoRenderer> _remoteRenderers = {};
+  final Set<String> _speakingParticipants = <String>{};
+  final Map<String, RTCPeerConnectionState> _peerStates =
+      <String, RTCPeerConnectionState>{};
+  final Map<String, PeerQualitySnapshot> _peerQuality =
+      <String, PeerQualitySnapshot>{};
+  final Map<String, DateTime> _speakingExpiresAt = <String, DateTime>{};
+  final Set<String> _recoveringPeers = <String>{};
 
   bool _rendererReady = false;
   bool _loading = true;
@@ -44,6 +51,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _speaker = true;
   bool _switchingCamera = false;
   Object? _error;
+  Timer? _telemetryTimer;
+  Timer? _speakingExpiryTimer;
+  bool _localSpeaking = false;
   MobileRealtimeState? _lastRealtimeState;
 
   RoomRef get _room =>
@@ -131,6 +141,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         onRemoteStream: (participantId, stream) {
           unawaited(_attachRemoteStream(participantId, stream));
         },
+        onPeerState: _onPeerState,
       );
 
       _media = media;
@@ -160,6 +171,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           initiator: self.id.compareTo(participant.id) < 0,
         );
       }
+
+      _startTelemetry();
 
       if (!mounted) return;
       setState(() => _loading = false);
@@ -246,6 +259,25 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     if (payload['callId'] != call.id) return;
 
+    if (type == 'call.speaking') {
+      final participantId = payload['participantId'] as String?;
+      if (participantId == null) return;
+      final speaking = payload['speaking'] as bool? ?? false;
+      if (speaking) {
+        _speakingParticipants.add(participantId);
+        final rawExpiry = payload['expiresAt'] as String?;
+        _speakingExpiresAt[participantId] = rawExpiry == null
+            ? DateTime.now().toUtc().add(const Duration(seconds: 3))
+            : DateTime.parse(rawExpiry).toUtc();
+        _ensureSpeakingSweep();
+      } else {
+        _speakingParticipants.remove(participantId);
+        _speakingExpiresAt.remove(participantId);
+      }
+      if (mounted) setState(() {});
+      return;
+    }
+
     if (type == 'call.signal') {
       final fromParticipantId = payload['fromParticipantId'] as String?;
       final signalValue = payload['signal'];
@@ -308,6 +340,100 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     } catch (_) {}
   }
 
+  void _onPeerState(
+    String participantId,
+    RTCPeerConnectionState state,
+  ) {
+    if (!mounted) return;
+    setState(() => _peerStates[participantId] = state);
+
+    if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+        state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+      unawaited(_recoverPeer(participantId));
+    }
+  }
+
+  Future<void> _recoverPeer(String participantId) async {
+    if (_recoveringPeers.contains(participantId)) return;
+    final media = _media;
+    final selfId = _selfParticipantId;
+    if (media == null || selfId == null) return;
+
+    _recoveringPeers.add(participantId);
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      final state = _peerStates[participantId];
+      if (state != RTCPeerConnectionState.RTCPeerConnectionStateFailed &&
+          state != RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        return;
+      }
+      await media.reconnectPeer(
+        participantId,
+        initiator: selfId.compareTo(participantId) < 0,
+      );
+    } catch (_) {
+    } finally {
+      _recoveringPeers.remove(participantId);
+    }
+  }
+
+  void _startTelemetry() {
+    _telemetryTimer?.cancel();
+    _telemetryTimer = Timer.periodic(
+      const Duration(milliseconds: 500),
+      (_) => unawaited(_tickTelemetry()),
+    );
+  }
+
+  Future<void> _tickTelemetry() async {
+    final media = _media;
+    final call = _call;
+    final data = _data;
+    final selfId = _selfParticipantId;
+    if (media == null || call == null || data == null || selfId == null) return;
+
+    final level = await media.sampleLocalAudioLevel();
+    final speaking = !_muted && level != null && level >= 0.025;
+    if (speaking != _localSpeaking) {
+      _localSpeaking = speaking;
+      data.sendCallSpeaking(callId: call.id, speaking: speaking);
+    }
+
+    final nextQuality = <String, PeerQualitySnapshot>{};
+    for (final participant in call.participants) {
+      if (participant.id == selfId) continue;
+      final quality = await media.peerQuality(participant.id);
+      if (quality != null) nextQuality[participant.id] = quality;
+    }
+    if (!mounted) return;
+    setState(() {
+      _peerQuality
+        ..clear()
+        ..addAll(nextQuality);
+    });
+  }
+
+  void _ensureSpeakingSweep() {
+    if (_speakingExpiryTimer?.isActive == true) return;
+    _speakingExpiryTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      final now = DateTime.now().toUtc();
+      final expired = _speakingExpiresAt.entries
+          .where((entry) => !entry.value.isAfter(now))
+          .map((entry) => entry.key)
+          .toList(growable: false);
+      if (expired.isEmpty) return;
+      for (final id in expired) {
+        _speakingExpiresAt.remove(id);
+        _speakingParticipants.remove(id);
+      }
+      if (mounted) setState(() {});
+      if (_speakingExpiresAt.isEmpty) {
+        _speakingExpiryTimer?.cancel();
+        _speakingExpiryTimer = null;
+      }
+    });
+  }
+
   Future<void> _toggleMute() async {
     final data = _data;
     final call = _call;
@@ -316,6 +442,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     final next = !_muted;
     media.setMuted(next);
+    if (next && _localSpeaking) {
+      _localSpeaking = false;
+      data.sendCallSpeaking(callId: call.id, speaking: false);
+    }
     setState(() => _muted = next);
 
     try {
@@ -410,6 +540,14 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   Future<void> _shutdownMedia() async {
+    _telemetryTimer?.cancel();
+    _speakingExpiryTimer?.cancel();
+    final data = _data;
+    final call = _call;
+    if (_localSpeaking && data != null && call != null) {
+      data.sendCallSpeaking(callId: call.id, speaking: false);
+    }
+    _localSpeaking = false;
     await _media?.leave();
     _media = null;
     _localRenderer.srcObject = null;
@@ -434,6 +572,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   @override
   void dispose() {
     _events?.cancel();
+    _telemetryTimer?.cancel();
+    _speakingExpiryTimer?.cancel();
     final data = _data;
     data?.removeListener(_onDataChanged);
     data?.unwatchCallRoom(_room);
@@ -536,6 +676,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           renderer: renderer,
           showVideo: showVideo,
           isSelf: isSelf,
+          speaking: _speakingParticipants.contains(participant.id),
+          peerState: _peerStates[participant.id],
+          quality: _peerQuality[participant.id],
         );
       },
     );
@@ -548,12 +691,18 @@ class _VideoParticipantTile extends StatelessWidget {
     required this.renderer,
     required this.showVideo,
     required this.isSelf,
+    required this.speaking,
+    required this.peerState,
+    required this.quality,
   });
 
   final CallParticipant participant;
   final RTCVideoRenderer? renderer;
   final bool showVideo;
   final bool isSelf;
+  final bool speaking;
+  final RTCPeerConnectionState? peerState;
+  final PeerQualitySnapshot? quality;
 
   @override
   Widget build(BuildContext context) {
@@ -563,9 +712,17 @@ class _VideoParticipantTile extends StatelessWidget {
             ? '@${participant.username}'
             : 'Member';
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: Stack(
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: speaking ? const Color(0xFF68E0CF) : const Color(0xFF173039),
+          width: speaking ? 2.5 : 1,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(17),
+        child: Stack(
         fit: StackFit.expand,
         children: [
           ColoredBox(
@@ -618,7 +775,63 @@ class _VideoParticipantTile extends StatelessWidget {
               ],
             ),
           ),
+          Positioned(
+            left: 10,
+            top: 9,
+            child: _QualityBadge(
+              speaking: speaking,
+              isSelf: isSelf,
+              peerState: peerState,
+              quality: quality,
+            ),
+          ),
         ],
+      ),
+      ),
+    );
+  }
+}
+
+class _QualityBadge extends StatelessWidget {
+  const _QualityBadge({
+    required this.speaking,
+    required this.isSelf,
+    required this.peerState,
+    required this.quality,
+  });
+
+  final bool speaking;
+  final bool isSelf;
+  final RTCPeerConnectionState? peerState;
+  final PeerQualitySnapshot? quality;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = speaking
+        ? 'Speaking'
+        : !isSelf &&
+                peerState == RTCPeerConnectionState.RTCPeerConnectionStateFailed
+            ? 'Retrying'
+            : !isSelf &&
+                    peerState ==
+                        RTCPeerConnectionState
+                            .RTCPeerConnectionStateDisconnected
+                ? 'Reconnecting'
+                : !isSelf && quality != null
+                    ? quality!.label
+                    : isSelf
+                        ? 'You'
+                        : 'Connecting';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0x9903090C),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 9, color: Colors.white70),
       ),
     );
   }

@@ -10,16 +10,49 @@ typedef RemoteStreamHandler = void Function(
   MediaStream stream,
 );
 
+typedef PeerStateHandler = void Function(
+  String participantId,
+  RTCPeerConnectionState state,
+);
+
+class PeerQualitySnapshot {
+  const PeerQualitySnapshot({
+    required this.roundTripTimeMs,
+    required this.packetLossPercent,
+    required this.jitterMs,
+  });
+
+  final double? roundTripTimeMs;
+  final double? packetLossPercent;
+  final double? jitterMs;
+
+  String get label {
+    if ((roundTripTimeMs ?? 0) >= 450 ||
+        (packetLossPercent ?? 0) >= 8 ||
+        (jitterMs ?? 0) >= 60) {
+      return 'Poor';
+    }
+    if ((roundTripTimeMs ?? 0) >= 220 ||
+        (packetLossPercent ?? 0) >= 3 ||
+        (jitterMs ?? 0) >= 30) {
+      return 'Fair';
+    }
+    return 'Good';
+  }
+}
+
 class FlutterMeshMediaSession {
   FlutterMeshMediaSession({
     required this.iceServers,
     required this.sendSignal,
     this.onRemoteStream,
+    this.onPeerState,
   });
 
   final List<Map<String, dynamic>> iceServers;
   final SignalSender sendSignal;
   final RemoteStreamHandler? onRemoteStream;
+  final PeerStateHandler? onPeerState;
 
   MediaStreamTrack? _audioTrack;
   MediaStreamTrack? _cameraTrack;
@@ -105,6 +138,98 @@ class FlutterMeshMediaSession {
         'kind': 'offer',
         'sdp': sdp,
       });
+    }
+  }
+
+  Future<void> reconnectPeer(
+    String participantId, {
+    required bool initiator,
+  }) async {
+    final peer = _peers.remove(participantId);
+    if (peer != null) await peer.close();
+
+    final stream = _remoteStreams.remove(participantId);
+    if (stream != null) {
+      for (final track in stream.getTracks()) {
+        track.stop();
+      }
+    }
+
+    await connectPeer(participantId, initiator: initiator);
+  }
+
+  Future<double?> sampleLocalAudioLevel() async {
+    final track = _audioTrack;
+    if (track == null || !track.enabled || _peers.isEmpty) return null;
+
+    for (final peer in _peers.values) {
+      try {
+        final reports = await peer.getStats(track);
+        double? level;
+        for (final report in reports) {
+          final raw = report.values['audioLevel'];
+          final value = raw is num
+              ? raw.toDouble()
+              : double.tryParse(raw?.toString() ?? '');
+          if (value != null && (level == null || value > level)) {
+            level = value;
+          }
+        }
+        if (level != null) return level;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<PeerQualitySnapshot?> peerQuality(String participantId) async {
+    final peer = _peers[participantId];
+    if (peer == null) return null;
+
+    try {
+      final reports = await peer.getStats();
+      double? rttMs;
+      double? jitterMs;
+      num lost = 0;
+      num received = 0;
+
+      for (final report in reports) {
+        final values = report.values;
+        if (report.type == 'candidate-pair' &&
+            values['state']?.toString() == 'succeeded') {
+          final rawRtt = values['currentRoundTripTime'];
+          final value = rawRtt is num
+              ? rawRtt.toDouble()
+              : double.tryParse(rawRtt?.toString() ?? '');
+          if (value != null) rttMs = value * 1000;
+        }
+
+        if (report.type == 'inbound-rtp') {
+          final rawLost = values['packetsLost'];
+          final rawReceived = values['packetsReceived'];
+          final rawJitter = values['jitter'];
+          if (rawLost is num) lost += rawLost;
+          if (rawReceived is num) received += rawReceived;
+          final value = rawJitter is num
+              ? rawJitter.toDouble()
+              : double.tryParse(rawJitter?.toString() ?? '');
+          if (value != null) {
+            final ms = value * 1000;
+            if (jitterMs == null || ms > jitterMs) jitterMs = ms;
+          }
+        }
+      }
+
+      final total = lost + received;
+      final lossPercent =
+          total > 0 ? (lost.toDouble() / total.toDouble()) * 100 : null;
+
+      return PeerQualitySnapshot(
+        roundTripTimeMs: rttMs,
+        packetLossPercent: lossPercent,
+        jitterMs: jitterMs,
+      );
+    } catch (_) {
+      return null;
     }
   }
 
@@ -240,6 +365,10 @@ class FlutterMeshMediaSession {
         'sdpMid': candidate.sdpMid,
         'sdpMLineIndex': candidate.sdpMLineIndex,
       });
+    };
+
+    peer.onConnectionState = (state) {
+      onPeerState?.call(participantId, state);
     };
 
     peer.onTrack = (event) {
