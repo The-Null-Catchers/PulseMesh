@@ -14,11 +14,13 @@ class VideoCallScreen extends StatefulWidget {
   const VideoCallScreen({
     required this.conversationId,
     required this.title,
+    this.existingCallId,
     super.key,
   });
 
   final String conversationId;
   final String title;
+  final String? existingCallId;
 
   @override
   State<VideoCallScreen> createState() => _VideoCallScreenState();
@@ -104,12 +106,15 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     String? startedCallId;
     try {
+      final callFuture = widget.existingCallId != null
+          ? data.joinCall(widget.existingCallId!)
+          : data.startConversationCall(
+              widget.conversationId,
+              kind: 'video',
+            );
       final results = await Future.wait<Object>([
         data.callIceServers(),
-        data.startConversationCall(
-          widget.conversationId,
-          kind: 'video',
-        ),
+        callFuture,
       ]);
       final iceServers = results[0] as List<Map<String, dynamic>>;
       final call = results[1] as ActiveCall;

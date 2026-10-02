@@ -13,12 +13,16 @@ import 'flutter_mesh_media_session.dart';
 
 class VoiceRoomScreen extends StatefulWidget {
   const VoiceRoomScreen({
-    required this.channelId,
+    this.channelId,
+    this.conversationId,
+    this.existingCallId,
     required this.title,
     super.key,
-  });
+  }) : assert(channelId != null || conversationId != null);
 
-  final String channelId;
+  final String? channelId;
+  final String? conversationId;
+  final String? existingCallId;
   final String title;
 
   @override
@@ -50,8 +54,13 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   final Map<String, DateTime> _speakingExpiresAt = <String, DateTime>{};
   bool _localSpeaking = false;
 
-  RoomRef get _room =>
-      RoomRef(kind: RoomKind.channel, id: widget.channelId);
+  RoomRef get _room {
+    final conversationId = widget.conversationId;
+    if (conversationId != null) {
+      return RoomRef(kind: RoomKind.conversation, id: conversationId);
+    }
+    return RoomRef(kind: RoomKind.channel, id: widget.channelId!);
+  }
 
   @override
   void didChangeDependencies() {
@@ -80,13 +89,24 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
 
     String? startedCallId;
     try {
+      final callFuture = widget.existingCallId != null
+          ? data.joinCall(widget.existingCallId!)
+          : widget.channelId != null
+              ? data.startVoiceCall(widget.channelId!)
+              : data.startConversationCall(
+                  widget.conversationId!,
+                  kind: 'voice',
+                );
       final results = await Future.wait<Object>([
         data.callIceServers(),
-        data.startVoiceCall(widget.channelId),
+        callFuture,
       ]);
       final iceServers = results[0] as List<Map<String, dynamic>>;
       final call = results[1] as ActiveCall;
       startedCallId = call.id;
+      if (call.kind != 'voice') {
+        throw StateError('This destination already has a video call.');
+      }
 
       CallParticipant? self;
       for (final participant in call.participants) {

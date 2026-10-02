@@ -330,7 +330,16 @@ class MobileDataController extends ChangeNotifier {
     );
   }
 
-  Future<ActiveCall> refreshCall(String callId) async {    final transport = _callTransport;
+  Future<ActiveCall> joinCall(String callId) async {
+    final transport = _callTransport;
+    if (transport == null) {
+      throw StateError('Call transport is not configured');
+    }
+    return transport.joinCall(callId);
+  }
+
+  Future<ActiveCall> refreshCall(String callId) async {
+    final transport = _callTransport;
     if (transport == null) {
       throw StateError('Call transport is not configured');
     }
