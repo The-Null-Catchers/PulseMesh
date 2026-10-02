@@ -299,6 +299,11 @@ class FlutterMeshMediaSession {
     if (track != null) track.enabled = enabled;
   }
 
+  Future<List<MediaDeviceInfo>> mediaDevices() async {
+    final devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.toList(growable: false);
+  }
+
   Future<void> selectMicrophone(String deviceId) async {
     await startAudio(deviceId: deviceId);
   }
