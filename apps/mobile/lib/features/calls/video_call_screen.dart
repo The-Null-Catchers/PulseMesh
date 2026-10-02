@@ -26,7 +26,8 @@ class VideoCallScreen extends StatefulWidget {
   State<VideoCallScreen> createState() => _VideoCallScreenState();
 }
 
-class _VideoCallScreenState extends State<VideoCallScreen> {
+class _VideoCallScreenState extends State<VideoCallScreen>
+    with WidgetsBindingObserver {
   MobileDataController? _data;
   StreamSubscription<Map<String, dynamic>>? _events;
   FlutterMeshMediaSession? _media;
@@ -54,6 +55,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _switchingCamera = false;
   bool _screenSharing = false;
   bool _screenShareBusy = false;
+  bool _resumeCameraAfterBackground = false;
   Object? _error;
   Timer? _telemetryTimer;
   Timer? _speakingExpiryTimer;
@@ -66,7 +68,82 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _rendererInitialization = _initializeRenderer();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      unawaited(_suspendVideoForBackground());
+      return;
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_resumeVideoAfterBackground());
+    }
+  }
+
+  Future<void> _suspendVideoForBackground() async {
+    final data = _data;
+    final call = _call;
+    final media = _media;
+    if (data == null || call == null || media == null || _leaving) return;
+
+    _telemetryTimer?.cancel();
+    _resumeCameraAfterBackground = _cameraEnabled;
+
+    if (_screenSharing) {
+      try {
+        final cameraStream = await media.stopScreenShare();
+        _localRenderer.srcObject = cameraStream;
+        _screenSharing = false;
+      } catch (_) {}
+    }
+
+    if (_cameraEnabled) {
+      media.setCameraEnabled(false);
+    }
+
+    try {
+      await data.updateCallParticipant(
+        call.id,
+        cameraEnabled: false,
+        screenSharing: false,
+        connectionState: 'reconnecting',
+      );
+    } catch (_) {}
+
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _resumeVideoAfterBackground() async {
+    final data = _data;
+    final call = _call;
+    final media = _media;
+    if (data == null || call == null || media == null || _leaving) return;
+
+    if (_resumeCameraAfterBackground) {
+      media.setCameraEnabled(true);
+      _cameraEnabled = true;
+      _resumeCameraAfterBackground = false;
+    }
+
+    _startTelemetry();
+    await _recoverAfterReconnect();
+
+    try {
+      await data.updateCallParticipant(
+        call.id,
+        cameraEnabled: _cameraEnabled,
+        screenSharing: false,
+        connectionState: 'connected',
+      );
+    } catch (_) {}
+
+    if (mounted) setState(() {});
   }
 
   Future<void> _initializeRenderer() async {
@@ -766,6 +843,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _events?.cancel();
     _telemetryTimer?.cancel();
     _speakingExpiryTimer?.cancel();

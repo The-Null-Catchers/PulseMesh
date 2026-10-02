@@ -22,6 +22,9 @@ type NotificationPayload = {
   workspaceId?: string | null;
   senderUserId?: string | null;
   preview?: string | null;
+  callId?: string | null;
+  callKind?: "voice" | "video" | null;
+  deepLink?: string | null;
 };
 
 type QuietHours = {
@@ -215,6 +218,9 @@ async function sendFcm(
       messageId: payload.messageId ?? "",
       channelId: payload.channelId ?? "",
       conversationId: payload.conversationId ?? "",
+      callId: payload.callId ?? "",
+      callKind: payload.callKind ?? "",
+      deepLink: payload.deepLink ?? "",
     },
   });
 
@@ -273,6 +279,9 @@ async function sendWebPush(
             messageId: payload.messageId ?? null,
             channelId: payload.channelId ?? null,
             conversationId: payload.conversationId ?? null,
+            callId: payload.callId ?? null,
+            callKind: payload.callKind ?? null,
+            deepLink: payload.deepLink ?? null,
           },
         }),
       );
@@ -356,10 +365,17 @@ async function deliverNotification(
     : null;
   const senderName = sender?.rows[0]?.display_name ?? "PulseMesh";
   const title =
-    notification.kind === "mention"
-      ? senderName + " mentioned you"
-      : "New message from " + senderName;
-  const body = payload.preview?.trim() || "Open PulseMesh to view it.";
+    notification.kind === "call"
+      ? payload.callKind === "video"
+        ? "Incoming video call"
+        : "Incoming voice call"
+      : notification.kind === "mention"
+        ? senderName + " mentioned you"
+        : "New message from " + senderName;
+  const body =
+    notification.kind === "call"
+      ? senderName + " is calling you on PulseMesh."
+      : payload.preview?.trim() || "Open PulseMesh to view it.";
 
   const [fcmCount, webCount] = await Promise.all([
     sendFcm(notification.user_id, title, body, payload),
