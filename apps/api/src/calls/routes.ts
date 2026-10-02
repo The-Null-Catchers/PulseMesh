@@ -145,6 +145,65 @@ async function destinationAccess(input: {
   );
 }
 
+async function conversationMemberUserIds(
+  conversationId: string,
+): Promise<string[]> {
+  const result = await pool.query<{ user_id: string }>(
+    "SELECT user_id FROM conversation_members WHERE conversation_id=$1",
+    [conversationId],
+  );
+  return result.rows.map((row) => row.user_id);
+}
+
+async function publishConversationCallStarted(
+  call: CallRow,
+): Promise<void> {
+  const conversationId = call.conversation_id;
+  if (!conversationId) return;
+
+  const memberIds = await conversationMemberUserIds(conversationId);
+  for (const memberId of memberIds) {
+    if (memberId === call.created_by) continue;
+    const event: RealtimeEvent = {
+      id: randomUUID(),
+      type: "call.started",
+      room: "user:" + memberId,
+      occurredAt: new Date().toISOString(),
+      payload: {
+        callId: call.id,
+        kind: call.kind,
+        channelId: call.channel_id,
+        conversationId,
+        startedAt: call.started_at.toISOString(),
+      },
+    };
+    await publishRealtime(event);
+  }
+}
+
+async function publishConversationCallEnded(
+  conversationId: string | null,
+  callId: string,
+  endedAt: Date,
+): Promise<void> {
+  if (!conversationId) return;
+
+  const memberIds = await conversationMemberUserIds(conversationId);
+  for (const memberId of memberIds) {
+    const event: RealtimeEvent = {
+      id: randomUUID(),
+      type: "call.ended",
+      room: "user:" + memberId,
+      occurredAt: new Date().toISOString(),
+      payload: {
+        callId,
+        endedAt: endedAt.toISOString(),
+      },
+    };
+    await publishRealtime(event);
+  }
+}
+
 async function publishParticipant(
   type:
     | "call.participant.joined"
@@ -290,6 +349,7 @@ export async function callRoutes(app: FastifyInstance): Promise<void> {
           },
         };
         await publishRealtime(event);
+        await publishConversationCallStarted(outcome.call);
       }
 
       await publishParticipant(
@@ -497,6 +557,11 @@ export async function callRoutes(app: FastifyInstance): Promise<void> {
             },
           };
           await publishRealtime(event);
+          await publishConversationCallEnded(
+            context.conversation_id,
+            context.id,
+            endedAt,
+          );
         }
       }
 
@@ -562,6 +627,11 @@ export async function callRoutes(app: FastifyInstance): Promise<void> {
           },
         };
         await publishRealtime(event);
+        await publishConversationCallEnded(
+          context.conversation_id,
+          context.id,
+          endedAt,
+        );
       }
 
       return { ok: true };
