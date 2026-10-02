@@ -107,6 +107,7 @@ abstract interface class CallTransport {
     bool? muted,
     bool? deafened,
     bool? cameraEnabled,
+    bool? screenSharing,
     String? connectionState,
   });
   Future<void> leave(String callId);
@@ -191,12 +192,14 @@ class DioCallTransport implements CallTransport {
     bool? muted,
     bool? deafened,
     bool? cameraEnabled,
+    bool? screenSharing,
     String? connectionState,
   }) async {
     final patch = <String, dynamic>{};
     if (muted != null) patch['muted'] = muted;
     if (deafened != null) patch['deafened'] = deafened;
     if (cameraEnabled != null) patch['cameraEnabled'] = cameraEnabled;
+    if (screenSharing != null) patch['screenSharing'] = screenSharing;
     if (connectionState != null) {
       patch['connectionState'] = connectionState;
     }
