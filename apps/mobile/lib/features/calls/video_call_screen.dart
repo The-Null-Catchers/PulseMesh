@@ -26,7 +26,8 @@ class VideoCallScreen extends StatefulWidget {
   State<VideoCallScreen> createState() => _VideoCallScreenState();
 }
 
-class _VideoCallScreenState extends State<VideoCallScreen>\n    with WidgetsBindingObserver {
+class _VideoCallScreenState extends State<VideoCallScreen>
+    with WidgetsBindingObserver {
   MobileDataController? _data;
   StreamSubscription<Map<String, dynamic>>? _events;
   FlutterMeshMediaSession? _media;
