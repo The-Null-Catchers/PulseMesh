@@ -342,6 +342,7 @@ class MobileDataController extends ChangeNotifier {
     bool? muted,
     bool? deafened,
     bool? cameraEnabled,
+    bool? screenSharing,
     String? connectionState,
   }) async {
     final transport = _callTransport;
@@ -353,6 +354,7 @@ class MobileDataController extends ChangeNotifier {
       muted: muted,
       deafened: deafened,
       cameraEnabled: cameraEnabled,
+      screenSharing: screenSharing,
       connectionState: connectionState,
     );
   }
