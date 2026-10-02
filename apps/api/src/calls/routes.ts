@@ -10,6 +10,7 @@ import {
 import { config } from "../config.js";
 import { pool, withTransaction } from "../db/index.js";
 import { AppError } from "../errors.js";
+import { createNotification } from "../notifications/service.js";
 import { publishRealtime } from "../realtime/bus.js";
 import {
   callDestinationRoom,
@@ -162,20 +163,42 @@ async function publishConversationCallStarted(call: CallRow): Promise<void> {
   const memberIds = await conversationMemberUserIds(conversationId);
   for (const memberId of memberIds) {
     if (memberId === call.created_by) continue;
+
+    const payload = {
+      callId: call.id,
+      kind: call.kind,
+      channelId: call.channel_id,
+      conversationId,
+      startedAt: call.started_at.toISOString(),
+    };
+
     const event: RealtimeEvent = {
       id: randomUUID(),
       type: "call.started",
       room: "user:" + memberId,
       occurredAt: new Date().toISOString(),
-      payload: {
-        callId: call.id,
-        kind: call.kind,
-        channelId: call.channel_id,
-        conversationId,
-        startedAt: call.started_at.toISOString(),
-      },
+      payload,
     };
     await publishRealtime(event);
+
+    await createNotification({
+      userId: memberId,
+      kind: "call",
+      dedupeKey: "call:" + call.id + ":user:" + memberId,
+      payload: {
+        conversationId,
+        senderUserId: call.created_by,
+        callId: call.id,
+        callKind: call.kind,
+        deepLink:
+          "pulsemesh://call/" +
+          call.kind +
+          "/" +
+          call.id +
+          "?conversationId=" +
+          conversationId,
+      },
+    });
   }
 }
 
