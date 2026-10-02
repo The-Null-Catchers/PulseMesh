@@ -40,6 +40,17 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   MobileRealtimeState? _lastRealtimeState;
   final Set<String> _remoteStreamParticipants = <String>{};
   final Set<String> _speakingParticipants = <String>{};
+  final Map<String, DateTime> _speakingExpiresAt = <String, DateTime>{};
+  final Map<String, RTCPeerConnectionState> _peerStates =
+      <String, RTCPeerConnectionState>{};
+  final Map<String, PeerQualitySnapshot> _peerQuality =
+      <String, PeerQualitySnapshot>{};
+  final Set<String> _recoveringPeers = <String>{};
+  Timer? _speakingMonitorTimer;
+  Timer? _speakingExpiryTimer;
+  Timer? _qualityTimer;
+  bool _localSpeaking = false;
+  final Set<String> _speakingParticipants = <String>{};
   final Map<String, String> _peerStates = <String, String>{};
   final Map<String, Timer> _speakingTimers = <String, Timer>{};
   final Set<String> _recoveringPeers = <String>{};
@@ -106,6 +117,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
           if (!mounted) return;
           setState(() => _remoteStreamParticipants.add(participantId));
         },
+        onPeerState: _handlePeerState,
         onPeerState: (participantId, state) {
           if (!mounted) return;
           final label = state.toString().split('.').last;
@@ -139,12 +151,19 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         call.id,
         connectionState: 'connected',
       );
+      _startTelemetry();
 
       if (!mounted) return;
       setState(() => _loading = false);
     } catch (error) {
       if (startedCallId != null) {
         unawaited(data.leaveCall(startedCallId));
+      }
+      _speakingMonitorTimer?.cancel();
+      _qualityTimer?.cancel();
+      _speakingExpiryTimer?.cancel();
+      if (_localSpeaking && call != null) {
+        data?.sendCallSpeaking(callId: call.id, speaking: false);
       }
       await _media?.leave();
       _media = null;
@@ -317,6 +336,26 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
       return;
     }
 
+    if (type == 'call.speaking') {
+      final participantId = payload['participantId'] as String?;
+      final speaking = payload['speaking'] as bool? ?? false;
+      if (participantId == null) return;
+
+      if (speaking) {
+        final expiresAt = payload['expiresAt'] as String?;
+        _speakingExpiresAt[participantId] = expiresAt == null
+            ? DateTime.now().toUtc().add(const Duration(seconds: 3))
+            : DateTime.parse(expiresAt).toUtc();
+        _speakingParticipants.add(participantId);
+        _startSpeakingExpirySweep();
+      } else {
+        _speakingExpiresAt.remove(participantId);
+        _speakingParticipants.remove(participantId);
+      }
+      if (mounted) setState(() {});
+      return;
+    }
+
     if (type == 'call.ended') {
       unawaited(_handleRemoteEnd());
       return;
@@ -355,6 +394,120 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     } catch (_) {}
   }
 
+  void _handlePeerState(
+    String participantId,
+    RTCPeerConnectionState state,
+  ) {
+    if (!mounted) return;
+    setState(() => _peerStates[participantId] = state);
+
+    if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+        state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+      unawaited(_recoverPeer(participantId));
+    }
+  }
+
+  Future<void> _recoverPeer(String participantId) async {
+    if (_recoveringPeers.contains(participantId)) return;
+
+    final media = _media;
+    final selfId = _selfParticipantId;
+    if (media == null || selfId == null) return;
+
+    _recoveringPeers.add(participantId);
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      final state = _peerStates[participantId];
+      if (state != RTCPeerConnectionState.RTCPeerConnectionStateFailed &&
+          state != RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        return;
+      }
+
+      await media.reconnectPeer(
+        participantId,
+        initiator: selfId.compareTo(participantId) < 0,
+      );
+    } catch (_) {
+      // A later state transition or realtime reconnect will retry.
+    } finally {
+      _recoveringPeers.remove(participantId);
+    }
+  }
+
+  void _startTelemetry() {
+    _speakingMonitorTimer?.cancel();
+    _qualityTimer?.cancel();
+
+    _speakingMonitorTimer = Timer.periodic(
+      const Duration(milliseconds: 450),
+      (_) => unawaited(_sampleLocalSpeaking()),
+    );
+
+    _qualityTimer = Timer.periodic(
+      const Duration(seconds: 4),
+      (_) => unawaited(_refreshPeerQuality()),
+    );
+  }
+
+  Future<void> _sampleLocalSpeaking() async {
+    final media = _media;
+    final call = _call;
+    final data = _data;
+    if (media == null || call == null || data == null) return;
+
+    final level = await media.sampleLocalAudioLevel();
+    final speaking = !_muted && level != null && level >= 0.025;
+    if (speaking == _localSpeaking) return;
+
+    _localSpeaking = speaking;
+    data.sendCallSpeaking(callId: call.id, speaking: speaking);
+  }
+
+  void _startSpeakingExpirySweep() {
+    if (_speakingExpiryTimer?.isActive == true) return;
+
+    _speakingExpiryTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      final now = DateTime.now().toUtc();
+      final expired = _speakingExpiresAt.entries
+          .where((entry) => !entry.value.isAfter(now))
+          .map((entry) => entry.key)
+          .toList(growable: false);
+      if (expired.isEmpty) return;
+
+      for (final participantId in expired) {
+        _speakingExpiresAt.remove(participantId);
+        _speakingParticipants.remove(participantId);
+      }
+      if (mounted) setState(() {});
+
+      if (_speakingExpiresAt.isEmpty) {
+        _speakingExpiryTimer?.cancel();
+        _speakingExpiryTimer = null;
+      }
+    });
+  }
+
+  Future<void> _refreshPeerQuality() async {
+    final media = _media;
+    final call = _call;
+    final selfId = _selfParticipantId;
+    if (media == null || call == null || selfId == null) return;
+
+    final next = <String, PeerQualitySnapshot>{};
+    for (final participant in call.participants) {
+      if (participant.id == selfId) continue;
+      final snapshot = await media.peerQuality(participant.id);
+      if (snapshot != null) next[participant.id] = snapshot;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _peerQuality
+        ..clear()
+        ..addAll(next);
+    });
+  }
+
   Future<void> _toggleMute() async {
     final data = _data;
     final call = _call;
@@ -363,6 +516,10 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
 
     final next = !_muted;
     media.setMuted(next);
+    if (next && _localSpeaking) {
+      _localSpeaking = false;
+      data.sendCallSpeaking(callId: call.id, speaking: false);
+    }
     setState(() => _muted = next);
 
     try {
@@ -444,6 +601,9 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     }
     _speakingTimers.clear();
     _events?.cancel();
+    _speakingMonitorTimer?.cancel();
+    _qualityTimer?.cancel();
+    _speakingExpiryTimer?.cancel();
     final data = _data;
     data?.removeListener(_onDataChanged);
     data?.unwatchCallRoom(_room);
@@ -823,6 +983,35 @@ class _VoiceError extends StatelessWidget {
       ),
     );
   }
+}
+
+String _participantStatus(
+  CallParticipant participant, {
+  required RTCPeerConnectionState? peerState,
+  required PeerQualitySnapshot? quality,
+  required bool speaking,
+  required bool isSelf,
+}) {
+  if (speaking) return 'Speaking';
+  if (!isSelf && peerState != null) {
+    if (peerState == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+      return 'Connection failed • retrying';
+    }
+    if (peerState ==
+        RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+      return 'Reconnecting media';
+    }
+    if (peerState == RTCPeerConnectionState.RTCPeerConnectionStateConnecting) {
+      return 'Connecting media';
+    }
+  }
+  if (!isSelf && quality != null) {
+    final rtt = quality.roundTripTimeMs;
+    return rtt == null
+        ? 'Quality: ${quality.label}'
+        : 'Quality: ${quality.label} • ${rtt.round()} ms';
+  }
+  return participant.connectionState;
 }
 
 String _connectionLabel(MobileRealtimeState state) {
