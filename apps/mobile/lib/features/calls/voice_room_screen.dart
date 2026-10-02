@@ -29,7 +29,7 @@ class VoiceRoomScreen extends StatefulWidget {
   State<VoiceRoomScreen> createState() => _VoiceRoomScreenState();
 }
 
-class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
+class _VoiceRoomScreenState extends State<VoiceRoomScreen>\n    with WidgetsBindingObserver {
   MobileDataController? _data;
   StreamSubscription<Map<String, dynamic>>? _events;
   FlutterMeshMediaSession? _media;
@@ -53,6 +53,39 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   Timer? _speakingExpiryTimer;
   final Map<String, DateTime> _speakingExpiresAt = <String, DateTime>{};
   bool _localSpeaking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final data = _data;
+    final call = _call;
+    if (data == null || call == null || _leaving) return;
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _telemetryTimer?.cancel();
+      unawaited(
+        data
+            .updateCallParticipant(
+              call.id,
+              connectionState: 'reconnecting',
+            )
+            .catchError((_) => _fallbackParticipant()),
+      );
+      return;
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      _startTelemetry();
+      unawaited(_recoverAfterReconnect());
+    }
+  }
 
   RoomRef get _room {
     final conversationId = widget.conversationId;
@@ -581,6 +614,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _events?.cancel();
     _telemetryTimer?.cancel();
     _speakingExpiryTimer?.cancel();
