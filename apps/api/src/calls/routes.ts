@@ -155,9 +155,7 @@ async function conversationMemberUserIds(
   return result.rows.map((row) => row.user_id);
 }
 
-async function publishConversationCallStarted(
-  call: CallRow,
-): Promise<void> {
+async function publishConversationCallStarted(call: CallRow): Promise<void> {
   const conversationId = call.conversation_id;
   if (!conversationId) return;
 
