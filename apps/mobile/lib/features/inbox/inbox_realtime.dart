@@ -6,6 +6,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../offline/local_store.dart';
 import '../../offline/models.dart';
+import '../notifications/mobile_push_service.dart';
 
 typedef MobileAccessTokenProvider = Future<String?> Function();
 typedef InboxDirtyCallback = Future<void> Function();
@@ -61,6 +62,10 @@ class DioRealtimeTicketProvider {
     required MobileAccessTokenProvider accessToken,
     Dio? dio,
   })  : _accessToken = accessToken,
+        _pushService = MobilePushService(
+          baseUrl: baseUrl,
+          accessToken: accessToken,
+        ),
         _dio = dio ??
             Dio(
               BaseOptions(
@@ -73,6 +78,11 @@ class DioRealtimeTicketProvider {
 
   final Dio _dio;
   final MobileAccessTokenProvider _accessToken;
+  final MobilePushService _pushService;
+
+  Future<void> initializePush() => _pushService.initialize();
+
+  Future<void> disposePush() => _pushService.dispose();
 
   Future<String> createTicket() async {
     final token = await _accessToken();
@@ -125,6 +135,7 @@ class MobileInboxRealtimeBridge {
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
+  StreamSubscription<Map<String, dynamic>>? _pushOpenedSubscription;
   Timer? _heartbeatTimer;
   Timer? _retryTimer;
   Timer? _inboxDebounceTimer;
@@ -141,6 +152,10 @@ class MobileInboxRealtimeBridge {
     if (!_stopped) return;
     _stopped = false;
     _lastSequence = await _localStore.realtimeSequence();
+    _pushOpenedSubscription ??= MobilePushService.openedCallEvents.listen(
+      (event) => onEvent?.call(event),
+    );
+    unawaited(_ticketProvider.initializePush());
     await _connect();
   }
 
@@ -187,6 +202,11 @@ class MobileInboxRealtimeBridge {
     _inboxDebounceTimer = null;
     _typingSweepTimer?.cancel();
     _typingSweepTimer = null;
+
+    final pushSubscription = _pushOpenedSubscription;
+    _pushOpenedSubscription = null;
+    await pushSubscription?.cancel();
+    await _ticketProvider.disposePush();
 
     final subscription = _subscription;
     _subscription = null;
