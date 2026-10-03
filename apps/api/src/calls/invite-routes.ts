@@ -121,11 +121,7 @@ export async function callInviteRoutes(app: FastifyInstance): Promise<void> {
       }
 
       if (context.status !== "active" && body.status !== "missed") {
-        throw new AppError(
-          409,
-          "CALL_NOT_ACTIVE",
-          "Call is no longer active",
-        );
+        throw new AppError(409, "CALL_NOT_ACTIVE", "Call is no longer active");
       }
 
       const result = await pool.query<CallInviteRow>(
