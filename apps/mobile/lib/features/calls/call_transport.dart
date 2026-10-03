@@ -253,12 +253,13 @@ class DioCallTransport implements CallTransport {
     int limit = 50,
     String? conversationId,
   }) async {
+    final queryParameters = <String, dynamic>{'limit': limit};
+    if (conversationId != null) {
+      queryParameters['conversationId'] = conversationId;
+    }
     final response = await _dio.get<Map<String, dynamic>>(
       '/calls/history',
-      queryParameters: {
-        'limit': limit,
-        if (conversationId != null) 'conversationId': conversationId,
-      },
+      queryParameters: queryParameters,
       options: await _options(),
     );
     final raw = response.data?['items'] as List<dynamic>? ?? const [];
