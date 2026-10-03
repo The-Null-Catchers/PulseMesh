@@ -185,6 +185,8 @@ abstract interface class CallTransport {
     int limit = 50,
     String? conversationId,
   });
+  Future<int> unreadMissedCount();
+  Future<void> markHistoryRead();
   Future<ActiveCall> startVoiceCall(String channelId);
   Future<ActiveCall> startConversationCall(
     String conversationId, {
@@ -270,6 +272,25 @@ class DioCallTransport implements CallTransport {
           ),
         )
         .toList(growable: false);
+  }
+
+  @override
+  Future<int> unreadMissedCount() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/calls/history/unread',
+      options: await _options(),
+    );
+    final value = response.data?['count'];
+    return value is num ? value.toInt() : int.tryParse('$value') ?? 0;
+  }
+
+  @override
+  Future<void> markHistoryRead() async {
+    await _dio.post<void>(
+      '/calls/history/read',
+      data: const <String, dynamic>{},
+      options: await _options(),
+    );
   }
 
   @override

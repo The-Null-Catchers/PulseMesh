@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'auth/auth_bootstrap.dart';
 import 'auth/auth_session_controller.dart';
 import 'config/app_config.dart';
+import 'features/calls/call_activity_badge.dart';
 import 'features/calls/call_activity_screen.dart';
 import 'features/calls/call_transport.dart';
 import 'features/calls/video_call_screen.dart';
@@ -646,6 +647,13 @@ class AppShell extends StatelessWidget {
         selectedIndex: indexFor(location),
         onDestinationSelected: (index) {
           const paths = ['/home', '/messages', '/activity', '/profile'];
+          if (index == 2) {
+            final transport = CallTransportScope.maybeOf(context);
+            callActivityUnreadCount.value = 0;
+            if (transport != null) {
+              unawaited(transport.markHistoryRead());
+            }
+          }
           context.go(paths[index]);
         },
         destinations: [
@@ -665,7 +673,12 @@ class AppShell extends StatelessWidget {
             label: 'Messages',
           ),
           const NavigationDestination(
-            icon: Icon(Icons.notifications_none_rounded),
+            icon: CallActivityBadgeIcon(
+              icon: Icons.notifications_none_rounded,
+            ),
+            selectedIcon: CallActivityBadgeIcon(
+              icon: Icons.notifications_rounded,
+            ),
             label: 'Activity',
           ),
           const NavigationDestination(

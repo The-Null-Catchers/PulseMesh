@@ -6,7 +6,10 @@ import 'package:mime/mime.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../offline/models.dart';
+import '../calls/call_activity_screen.dart';
+import '../calls/call_transport.dart';
 import '../calls/video_call_screen.dart';
+import '../calls/voice_room_screen.dart';
 import '../inbox/inbox_realtime.dart';
 import '../inbox/mobile_data_controller.dart';
 import '../inbox/mobile_data_scope.dart';
@@ -43,7 +46,10 @@ class _RoomScreenState extends State<RoomScreen> {
   final FocusNode _composerFocus = FocusNode();
 
   MobileDataController? _data;
+  CallTransport? _callTransport;
+  StreamSubscription<Map<String, dynamic>>? _callEventsSubscription;
   List<RoomMessage> _messages = const [];
+  List<CallHistoryItem> _callEvents = const [];
   RoomMessage? _replyingTo;
   RoomMessage? _editingMessage;
   Timer? _typingStopTimer;
@@ -51,6 +57,7 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _loading = true;
   bool _sending = false;
   bool _refreshingCache = false;
+  bool _refreshingCalls = false;
   bool _pickingAttachments = false;
   List<_ComposerAttachment> _composerAttachments = const [];
 
@@ -58,21 +65,35 @@ class _RoomScreenState extends State<RoomScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final next = MobileDataScope.of(context);
-    if (identical(_data, next)) return;
+    if (!identical(_data, next)) {
+      _data?.removeListener(_onDataChanged);
+      _callEventsSubscription?.cancel();
+      _data = next;
+      next.addListener(_onDataChanged);
+      _callEventsSubscription = next.realtimeEvents.listen(_onRealtimeEvent);
+      unawaited(_openRoom());
+    }
 
-    _data?.removeListener(_onDataChanged);
-    _data = next;
-    next.addListener(_onDataChanged);
-    unawaited(_openRoom());
+    final nextCallTransport = CallTransportScope.maybeOf(context);
+    if (!identical(_callTransport, nextCallTransport)) {
+      _callTransport = nextCallTransport;
+      unawaited(_loadCallEvents());
+    }
   }
 
   Future<void> _openRoom() async {
     final data = _data;
     if (data == null) return;
 
-    await _loadFromCache();
+    await Future.wait<void>([
+      _loadFromCache(),
+      _loadCallEvents(),
+    ]);
     await data.openRoom(widget.room);
-    await _loadFromCache();
+    await Future.wait<void>([
+      _loadFromCache(),
+      _loadCallEvents(),
+    ]);
 
     if (mounted) {
       setState(() => _loading = false);
@@ -81,6 +102,16 @@ class _RoomScreenState extends State<RoomScreen> {
 
   void _onDataChanged() {
     unawaited(_loadFromCache());
+  }
+
+  void _onRealtimeEvent(Map<String, dynamic> event) {
+    if (widget.room.kind != RoomKind.conversation) return;
+    final type = event['type'] as String?;
+    if (type == 'call.started' ||
+        type == 'call.ended' ||
+        type == 'call.invite.updated') {
+      unawaited(_loadCallEvents());
+    }
   }
 
   Future<void> _loadFromCache() async {
@@ -95,6 +126,63 @@ class _RoomScreenState extends State<RoomScreen> {
     } finally {
       _refreshingCache = false;
     }
+  }
+
+  Future<void> _loadCallEvents() async {
+    if (widget.room.kind != RoomKind.conversation || _refreshingCalls) return;
+    final transport = _callTransport;
+    if (transport == null) return;
+
+    _refreshingCalls = true;
+    try {
+      final events = await transport.history(
+        limit: 50,
+        conversationId: widget.room.id,
+      );
+      if (!mounted) return;
+      setState(() => _callEvents = events);
+    } catch (_) {
+      // Message history remains usable while call activity is temporarily offline.
+    } finally {
+      _refreshingCalls = false;
+    }
+  }
+
+  Future<void> _redialCall(CallHistoryItem item) async {
+    if (widget.room.kind != RoomKind.conversation) return;
+
+    final route = item.kind == 'video'
+        ? VideoCallScreen(
+            conversationId: widget.room.id,
+            title: widget.title,
+          )
+        : VoiceRoomScreen(
+            conversationId: widget.room.id,
+            title: widget.title,
+          );
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => route),
+    );
+    await _loadCallEvents();
+  }
+
+  List<_RoomTimelineEntry> _timelineEntries() {
+    final entries = <_RoomTimelineEntry>[
+      ..._messages.map(
+        (message) => _RoomTimelineEntry(
+          at: message.createdAt.toUtc(),
+          message: message,
+        ),
+      ),
+      ..._callEvents.map(
+        (call) => _RoomTimelineEntry(
+          at: (call.endedAt ?? call.startedAt).toUtc(),
+          call: call,
+        ),
+      ),
+    ];
+    entries.sort((a, b) => b.at.compareTo(a.at));
+    return entries;
   }
 
   Future<void> _pickAttachments() async {
@@ -816,6 +904,7 @@ class _RoomScreenState extends State<RoomScreen> {
   @override
   void dispose() {
     _stopTyping();
+    _callEventsSubscription?.cancel();
     final data = _data;
     data?.removeListener(_onDataChanged);
     data?.closeRoom(widget.room);
@@ -828,6 +917,7 @@ class _RoomScreenState extends State<RoomScreen> {
   Widget build(BuildContext context) {
     final data = MobileDataScope.of(context);
     final typingText = _typingText(data);
+    final timeline = _timelineEntries();
 
     return Scaffold(
       appBar: AppBar(
@@ -889,7 +979,10 @@ class _RoomScreenState extends State<RoomScreen> {
             tooltip: 'Refresh',
             onPressed: () async {
               await data.refreshRoom(widget.room);
-              await _loadFromCache();
+              await Future.wait<void>([
+                _loadFromCache(),
+                _loadCallEvents(),
+              ]);
             },
             icon: const Icon(Icons.sync_rounded),
           ),
@@ -899,22 +992,34 @@ class _RoomScreenState extends State<RoomScreen> {
         children: [
           if (data.offline) const _OfflineStrip(),
           Expanded(
-            child: _loading && _messages.isEmpty
+            child: _loading && timeline.isEmpty
                 ? const Center(child: CircularProgressIndicator())
-                : _messages.isEmpty
+                : timeline.isEmpty
                     ? const _EmptyRoom()
                     : RefreshIndicator(
                         onRefresh: () async {
                           await data.refreshRoom(widget.room);
-                          await _loadFromCache();
+                          await Future.wait<void>([
+                            _loadFromCache(),
+                            _loadCallEvents(),
+                          ]);
                         },
                         child: ListView.builder(
                           reverse: true,
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(12, 16, 12, 18),
-                          itemCount: _messages.length,
+                          itemCount: timeline.length,
                           itemBuilder: (context, index) {
-                            final message = _messages[index];
+                            final entry = timeline[index];
+                            final call = entry.call;
+                            if (call != null) {
+                              return _CallEventCard(
+                                item: call,
+                                onCallAgain: () => unawaited(_redialCall(call)),
+                              );
+                            }
+
+                            final message = entry.message!;
                             return _MessageCard(
                               message: message,
                               replyPreview: _replyPreview(message),
@@ -1004,6 +1109,120 @@ class _RoomScreenState extends State<RoomScreen> {
     }
     return '${unique.take(2).join(', ')} and others are typing…';
   }
+}
+
+class _RoomTimelineEntry {
+  const _RoomTimelineEntry({
+    required this.at,
+    this.message,
+    this.call,
+  });
+
+  final DateTime at;
+  final RoomMessage? message;
+  final CallHistoryItem? call;
+}
+
+class _CallEventCard extends StatelessWidget {
+  const _CallEventCard({
+    required this.item,
+    required this.onCallAgain,
+  });
+
+  final CallHistoryItem item;
+  final VoidCallback onCallAgain;
+
+  @override
+  Widget build(BuildContext context) {
+    final video = item.kind == 'video';
+    final missed = item.missed;
+    final active = item.status == 'active';
+    final color = missed ? Colors.redAccent : const Color(0xFF68E0CF);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(13, 10, 8, 10),
+        decoration: BoxDecoration(
+          color: missed ? const Color(0x221E1111) : const Color(0xFF0B171C),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: missed ? const Color(0x55FF5252) : const Color(0xFF24404A),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              video ? Icons.videocam_outlined : Icons.call_outlined,
+              color: color,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _callEventLabel(item),
+                    style: TextStyle(
+                      color: missed ? Colors.redAccent.shade100 : Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _callEventTime(item),
+                    style: const TextStyle(
+                      color: Colors.white38,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (!active)
+              TextButton.icon(
+                onPressed: onCallAgain,
+                icon: Icon(
+                  video ? Icons.videocam_rounded : Icons.call_rounded,
+                  size: 16,
+                ),
+                label: const Text('Call again'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _callEventLabel(CallHistoryItem item) {
+  final kind = item.kind == 'video' ? 'Video' : 'Voice';
+  if (item.status == 'active') return '$kind call started';
+  if (item.missed) return 'Missed ${item.kind} call';
+  if (item.inviteStatus == 'declined' && !item.joined) {
+    return '${item.kind == 'video' ? 'Video' : 'Voice'} call declined';
+  }
+
+  final duration = _callEventDuration(item);
+  if (duration == null) return '$kind call ended';
+  return '$kind call ended · $duration';
+}
+
+String? _callEventDuration(CallHistoryItem item) {
+  final endedAt = item.endedAt;
+  if (!item.joined || endedAt == null) return null;
+  final duration = endedAt.difference(item.startedAt);
+  if (duration.isNegative) return null;
+  final minutes = duration.inMinutes;
+  final seconds = duration.inSeconds.remainder(60);
+  if (minutes > 0) return '${minutes}m ${seconds}s';
+  return '${seconds}s';
+}
+
+String _callEventTime(CallHistoryItem item) {
+  return _formatTime((item.endedAt ?? item.startedAt).toLocal());
 }
 
 class _ForwardDestination {
