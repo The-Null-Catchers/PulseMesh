@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulsemesh_mobile/features/calls/call_transport.dart';
+import 'package:pulsemesh/features/calls/call_transport.dart';
 
 void main() {
   test('CallHistoryItem parses missed incoming calls', () {
