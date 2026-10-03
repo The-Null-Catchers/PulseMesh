@@ -60,7 +60,11 @@ async function currentInvite(
   );
   const row = result.rows[0];
   if (!row) {
-    throw new AppError(404, "CALL_INVITE_NOT_FOUND", "Call invite was not found");
+    throw new AppError(
+      404,
+      "CALL_INVITE_NOT_FOUND",
+      "Call invite was not found",
+    );
   }
   return row;
 }
@@ -77,11 +81,12 @@ export async function callInviteRoutes(app: FastifyInstance): Promise<void> {
       if (!userId) throw new Error("Missing user");
 
       const context = await getCallContext(params.callId);
-      if (
-        !context.conversation_id ||
-        !(await canAccessCall(userId, context))
-      ) {
-        throw new AppError(403, "CALL_INVITE_DENIED", "Call invite access denied");
+      if (!context.conversation_id || !(await canAccessCall(userId, context))) {
+        throw new AppError(
+          403,
+          "CALL_INVITE_DENIED",
+          "Call invite access denied",
+        );
       }
 
       return invitePayload(await currentInvite(context.id, userId));
@@ -102,11 +107,12 @@ export async function callInviteRoutes(app: FastifyInstance): Promise<void> {
       if (!userId) throw new Error("Missing user");
 
       const context = await getCallContext(params.callId);
-      if (
-        !context.conversation_id ||
-        !(await canAccessCall(userId, context))
-      ) {
-        throw new AppError(403, "CALL_INVITE_DENIED", "Call invite access denied");
+      if (!context.conversation_id || !(await canAccessCall(userId, context))) {
+        throw new AppError(
+          403,
+          "CALL_INVITE_DENIED",
+          "Call invite access denied",
+        );
       }
 
       const before = await currentInvite(context.id, userId);
@@ -115,7 +121,11 @@ export async function callInviteRoutes(app: FastifyInstance): Promise<void> {
       }
 
       if (context.status !== "active" && body.status !== "missed") {
-        throw new AppError(409, "CALL_NOT_ACTIVE", "Call is no longer active");
+        throw new AppError(
+          409,
+          "CALL_NOT_ACTIVE",
+          "Call is no longer active",
+        );
       }
 
       const result = await pool.query<CallInviteRow>(
