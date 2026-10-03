@@ -5,34 +5,34 @@ import 'package:dio/dio.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
-import '../../auth/auth_session_controller.dart';
-import '../../config/app_config.dart';
-
-typedef PushDeepLinkHandler = void Function(String deepLink);
+typedef PushAccessTokenProvider = Future<String?> Function();
 
 class MobilePushService {
   MobilePushService({
-    required AuthSessionController authSession,
-    required AppConfig config,
-    required PushDeepLinkHandler onDeepLink,
+    required String baseUrl,
+    required PushAccessTokenProvider accessToken,
     FirebaseMessaging? messaging,
     Dio? dio,
-  })  : _authSession = authSession,
-        _onDeepLink = onDeepLink,
-        _messaging = messaging ?? FirebaseMessaging.instance,
+  })  : _accessToken = accessToken,
+        _messagingOverride = messaging,
         _dio = dio ??
             Dio(
               BaseOptions(
-                baseUrl: config.apiBaseUrl,
+                baseUrl: baseUrl,
                 connectTimeout: const Duration(seconds: 10),
                 receiveTimeout: const Duration(seconds: 20),
                 sendTimeout: const Duration(seconds: 20),
               ),
             );
 
-  final AuthSessionController _authSession;
-  final PushDeepLinkHandler _onDeepLink;
-  final FirebaseMessaging _messaging;
+  static final StreamController<Map<String, dynamic>> _openedCallEvents =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  static Stream<Map<String, dynamic>> get openedCallEvents =>
+      _openedCallEvents.stream;
+
+  final PushAccessTokenProvider _accessToken;
+  final FirebaseMessaging? _messagingOverride;
   final Dio _dio;
 
   StreamSubscription<String>? _tokenRefreshSubscription;
@@ -49,7 +49,8 @@ class MobilePushService {
         await Firebase.initializeApp();
       }
 
-      final permission = await _messaging.requestPermission(
+      final messaging = _messagingOverride ?? FirebaseMessaging.instance;
+      final permission = await messaging.requestPermission(
         alert: true,
         badge: true,
         sound: true,
@@ -60,12 +61,12 @@ class MobilePushService {
         return;
       }
 
-      final token = await _messaging.getToken();
+      final token = await messaging.getToken();
       if (token != null && token.isNotEmpty) {
         await _registerToken(token);
       }
 
-      _tokenRefreshSubscription = _messaging.onTokenRefresh.listen((token) {
+      _tokenRefreshSubscription = messaging.onTokenRefresh.listen((token) {
         unawaited(_registerToken(token));
       });
 
@@ -73,13 +74,13 @@ class MobilePushService {
         _handleOpenedMessage,
       );
 
-      final initialMessage = await _messaging.getInitialMessage();
+      final initialMessage = await messaging.getInitialMessage();
       if (initialMessage != null) {
         _handleOpenedMessage(initialMessage);
       }
     } catch (_) {
-      // Native Firebase configuration may not be present in local/dev builds.
-      // Push support remains optional and must never prevent app startup.
+      // Local/dev builds may intentionally omit native Firebase config.
+      // Push support is optional and must never prevent authenticated startup.
     }
   }
 
@@ -87,7 +88,7 @@ class MobilePushService {
     if (_disposed || token.isEmpty) return;
 
     try {
-      final accessToken = await _authSession.accessToken();
+      final accessToken = await _accessToken();
       if (accessToken == null || accessToken.isEmpty) return;
 
       await _dio.post<void>(
@@ -101,16 +102,37 @@ class MobilePushService {
         ),
       );
     } catch (_) {
-      // Token registration is retried when Firebase rotates the token or on the
-      // next authenticated app start.
+      // Registration is retried on token refresh or the next app session.
     }
   }
 
   void _handleOpenedMessage(RemoteMessage message) {
     if (_disposed) return;
-    final deepLink = message.data['deepLink'];
-    if (deepLink == null || deepLink.isEmpty) return;
-    _onDeepLink(deepLink);
+
+    final callId = message.data['callId'];
+    final kind = message.data['callKind'];
+    final conversationId = message.data['conversationId'];
+    if (callId == null ||
+        callId.isEmpty ||
+        conversationId == null ||
+        conversationId.isEmpty ||
+        (kind != 'voice' && kind != 'video')) {
+      return;
+    }
+
+    final occurredAt = message.sentTime?.toUtc() ?? DateTime.now().toUtc();
+    _openedCallEvents.add({
+      'type': 'call.started',
+      'room': 'user:push',
+      'occurredAt': occurredAt.toIso8601String(),
+      'payload': {
+        'callId': callId,
+        'kind': kind,
+        'channelId': null,
+        'conversationId': conversationId,
+        'startedAt': occurredAt.toIso8601String(),
+      },
+    });
   }
 
   Future<void> dispose() async {
