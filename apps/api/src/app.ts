@@ -25,6 +25,7 @@ import { healthRoutes } from "./health/routes.js";
 import { presenceRoutes } from "./presence/routes.js";
 import { callRoutes } from "./calls/routes.js";
 import { callInviteRoutes } from "./calls/invite-routes.js";
+import { callHistoryRoutes } from "./calls/history-routes.js";
 import { redis } from "./realtime/bus.js";
 import { realtimeTicketRoutes } from "./realtime/tickets.js";
 import { registerRealtimeGateway } from "./realtime/gateway.js";
@@ -108,6 +109,7 @@ export async function buildApp() {
   await presenceRoutes(app);
   await callRoutes(app);
   await callInviteRoutes(app);
+  await callHistoryRoutes(app);
   await moderationRoutes(app);
   await auditRoutes(app);
   await e2eeRoutes(app);
