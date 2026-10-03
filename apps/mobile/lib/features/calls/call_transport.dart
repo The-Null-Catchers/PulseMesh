@@ -77,6 +77,58 @@ class CallInvite {
   }
 }
 
+class CallHistoryItem {
+  const CallHistoryItem({
+    required this.id,
+    required this.conversationId,
+    required this.createdBy,
+    required this.creatorUsername,
+    required this.creatorDisplayName,
+    required this.kind,
+    required this.status,
+    required this.startedAt,
+    required this.endedAt,
+    required this.inviteStatus,
+    required this.joined,
+    required this.direction,
+    required this.missed,
+  });
+
+  final String id;
+  final String? conversationId;
+  final String createdBy;
+  final String creatorUsername;
+  final String creatorDisplayName;
+  final String kind;
+  final String status;
+  final DateTime startedAt;
+  final DateTime? endedAt;
+  final String? inviteStatus;
+  final bool joined;
+  final String direction;
+  final bool missed;
+
+  factory CallHistoryItem.fromJson(Map<String, dynamic> json) {
+    return CallHistoryItem(
+      id: json['id'] as String,
+      conversationId: json['conversationId'] as String?,
+      createdBy: json['createdBy'] as String,
+      creatorUsername: json['creatorUsername'] as String? ?? '',
+      creatorDisplayName: json['creatorDisplayName'] as String? ?? '',
+      kind: json['kind'] as String? ?? 'voice',
+      status: json['status'] as String? ?? 'ended',
+      startedAt: DateTime.parse(json['startedAt'] as String).toUtc(),
+      endedAt: json['endedAt'] == null
+          ? null
+          : DateTime.parse(json['endedAt'] as String).toUtc(),
+      inviteStatus: json['inviteStatus'] as String?,
+      joined: json['joined'] as bool? ?? false,
+      direction: json['direction'] as String? ?? 'incoming',
+      missed: json['missed'] as bool? ?? false,
+    );
+  }
+}
+
 class ActiveCall {
   const ActiveCall({
     required this.id,
@@ -129,6 +181,10 @@ class ActiveCall {
 
 abstract interface class CallTransport {
   Future<List<Map<String, dynamic>>> iceServers();
+  Future<List<CallHistoryItem>> history({
+    int limit = 50,
+    String? conversationId,
+  });
   Future<ActiveCall> startVoiceCall(String channelId);
   Future<ActiveCall> startConversationCall(
     String conversationId, {
@@ -189,6 +245,30 @@ class DioCallTransport implements CallTransport {
     final raw = response.data?['iceServers'] as List<dynamic>? ?? const [];
     return raw
         .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<CallHistoryItem>> history({
+    int limit = 50,
+    String? conversationId,
+  }) async {
+    final queryParameters = <String, dynamic>{'limit': limit};
+    if (conversationId != null) {
+      queryParameters['conversationId'] = conversationId;
+    }
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/calls/history',
+      queryParameters: queryParameters,
+      options: await _options(),
+    );
+    final raw = response.data?['items'] as List<dynamic>? ?? const [];
+    return raw
+        .map(
+          (item) => CallHistoryItem.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
         .toList(growable: false);
   }
 

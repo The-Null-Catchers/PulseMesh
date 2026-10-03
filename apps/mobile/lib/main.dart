@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'auth/auth_bootstrap.dart';
 import 'auth/auth_session_controller.dart';
 import 'config/app_config.dart';
+import 'features/calls/call_activity_screen.dart';
 import 'features/calls/call_transport.dart';
 import 'features/calls/video_call_screen.dart';
 import 'features/calls/voice_room_screen.dart';
@@ -92,7 +93,7 @@ final router = GoRouter(
         GoRoute(path: '/messages', builder: (_, _) => const MessagesScreen()),
         GoRoute(
           path: '/activity',
-          builder: (_, _) => const PlaceholderScreen(title: 'Activity'),
+          builder: (_, _) => const CallActivityScreen(),
         ),
         GoRoute(
           path: '/profile',
@@ -174,10 +175,13 @@ class PulseMeshApp extends StatelessWidget {
       theme: buildPulseMeshTheme(),
       routerConfig: router,
       builder: (context, child) {
-        return _IncomingCallHost(
-          data: MobileDataScope.of(context),
-          callTransport: callTransport,
-          child: child ?? const SizedBox.shrink(),
+        return CallTransportScope(
+          transport: callTransport,
+          child: _IncomingCallHost(
+            data: MobileDataScope.of(context),
+            callTransport: callTransport,
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
     );
