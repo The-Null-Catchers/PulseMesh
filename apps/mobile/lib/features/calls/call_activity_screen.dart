@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../inbox/inbox_models.dart';
 import '../inbox/mobile_data_controller.dart';
 import '../inbox/mobile_data_scope.dart';
 import 'call_transport.dart';
@@ -260,7 +259,7 @@ class _CallHistoryTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        tileColor: missed ? const Color(0x14FF6B6B) : const Color(0x0800FFFFFF),
+        tileColor: missed ? const Color(0x14FF6B6B) : const Color(0x08FFFFFF),
         leading: CircleAvatar(
           backgroundColor: missed
               ? const Color(0x332F1717)
