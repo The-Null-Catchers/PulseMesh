@@ -138,6 +138,7 @@ export const realtimeEventSchema = z.discriminatedUnion("type", [
       channelId: z.string().uuid().nullable(),
       conversationId: z.string().uuid().nullable(),
       startedAt: z.string(),
+      expiresAt: z.string().optional(),
     }),
   }),
   z.object({
@@ -146,6 +147,17 @@ export const realtimeEventSchema = z.discriminatedUnion("type", [
     payload: z.object({
       callId: z.string().uuid(),
       endedAt: z.string(),
+    }),
+  }),
+  z.object({
+    ...base,
+    type: z.literal("call.invite.updated"),
+    payload: z.object({
+      callId: z.string().uuid(),
+      userId: z.string().uuid(),
+      status: z.enum(["pending", "accepted", "declined", "missed"]),
+      expiresAt: z.string(),
+      respondedAt: z.string().nullable(),
     }),
   }),
   z.object({

@@ -46,6 +46,37 @@ class CallParticipant {
   }
 }
 
+class CallInvite {
+  const CallInvite({
+    required this.callId,
+    required this.userId,
+    required this.status,
+    required this.expiresAt,
+    required this.respondedAt,
+  });
+
+  final String callId;
+  final String userId;
+  final String status;
+  final DateTime expiresAt;
+  final DateTime? respondedAt;
+
+  bool get pending =>
+      status == 'pending' && expiresAt.isAfter(DateTime.now().toUtc());
+
+  factory CallInvite.fromJson(Map<String, dynamic> json) {
+    return CallInvite(
+      callId: json['callId'] as String,
+      userId: json['userId'] as String,
+      status: json['status'] as String? ?? 'pending',
+      expiresAt: DateTime.parse(json['expiresAt'] as String).toUtc(),
+      respondedAt: json['respondedAt'] == null
+          ? null
+          : DateTime.parse(json['respondedAt'] as String).toUtc(),
+    );
+  }
+}
+
 class ActiveCall {
   const ActiveCall({
     required this.id,
@@ -86,9 +117,11 @@ class ActiveCall {
           ? null
           : DateTime.parse(json['endedAt'] as String).toUtc(),
       participants: raw
-          .map((item) => CallParticipant.fromJson(
-                Map<String, dynamic>.from(item as Map),
-              ))
+          .map(
+            (item) => CallParticipant.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
           .toList(growable: false),
     );
   }
@@ -103,6 +136,11 @@ abstract interface class CallTransport {
   });
   Future<ActiveCall> refreshCall(String callId);
   Future<ActiveCall> joinCall(String callId);
+  Future<CallInvite> callInvite(String callId);
+  Future<CallInvite?> respondToInvite(
+    String callId, {
+    required String status,
+  });
   Future<CallParticipant> updateParticipant(
     String callId, {
     bool? muted,
@@ -165,7 +203,6 @@ class DioCallTransport implements CallTransport {
   }
 
   @override
-  @override
   Future<ActiveCall> startConversationCall(
     String conversationId, {
     required String kind,
@@ -189,7 +226,16 @@ class DioCallTransport implements CallTransport {
     if (call is! Map) {
       throw StateError('Call join response did not include call data');
     }
-    return ActiveCall.fromJson(Map<String, dynamic>.from(call));
+
+    final activeCall = ActiveCall.fromJson(Map<String, dynamic>.from(call));
+    if (activeCall.conversationId != null) {
+      try {
+        await respondToInvite(callId, status: 'accepted');
+      } catch (_) {
+        // Joining media succeeded. Invite synchronization can recover later.
+      }
+    }
+    return activeCall;
   }
 
   @override
@@ -199,6 +245,28 @@ class DioCallTransport implements CallTransport {
       options: await _options(),
     );
     return ActiveCall.fromJson(response.data ?? const {});
+  }
+
+  @override
+  Future<CallInvite> callInvite(String callId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/calls/$callId/invite',
+      options: await _options(),
+    );
+    return CallInvite.fromJson(response.data ?? const {});
+  }
+
+  @override
+  Future<CallInvite?> respondToInvite(
+    String callId, {
+    required String status,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/calls/$callId/invite/respond',
+      data: {'status': status},
+      options: await _options(),
+    );
+    return CallInvite.fromJson(response.data ?? const {});
   }
 
   @override

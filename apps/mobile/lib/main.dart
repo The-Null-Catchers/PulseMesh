@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'auth/auth_bootstrap.dart';
 import 'auth/auth_session_controller.dart';
 import 'config/app_config.dart';
+import 'features/calls/call_transport.dart';
 import 'features/calls/video_call_screen.dart';
 import 'features/calls/voice_room_screen.dart';
 import 'features/inbox/inbox_models.dart';
@@ -50,6 +51,7 @@ class PulseMeshAuthenticatedRoot extends StatefulWidget {
 class _PulseMeshAuthenticatedRootState
     extends State<PulseMeshAuthenticatedRoot> {
   late final MobileDataController _controller;
+  late final CallTransport _callTransport;
 
   @override
   void initState() {
@@ -57,6 +59,10 @@ class _PulseMeshAuthenticatedRootState
     _controller = MobileDataController.live(
       authSession: widget.authSession,
       config: widget.config,
+    );
+    _callTransport = DioCallTransport(
+      baseUrl: widget.config.apiBaseUrl,
+      accessToken: widget.authSession.accessToken,
     );
     unawaited(_controller.initialize());
   }
@@ -71,7 +77,7 @@ class _PulseMeshAuthenticatedRootState
   Widget build(BuildContext context) {
     return MobileDataScope(
       controller: _controller,
-      child: const PulseMeshApp(),
+      child: PulseMeshApp(callTransport: _callTransport),
     );
   }
 }
@@ -156,7 +162,9 @@ final router = GoRouter(
 );
 
 class PulseMeshApp extends StatelessWidget {
-  const PulseMeshApp({super.key});
+  const PulseMeshApp({this.callTransport, super.key});
+
+  final CallTransport? callTransport;
 
   @override
   Widget build(BuildContext context) {
@@ -168,6 +176,7 @@ class PulseMeshApp extends StatelessWidget {
       builder: (context, child) {
         return _IncomingCallHost(
           data: MobileDataScope.of(context),
+          callTransport: callTransport,
           child: child ?? const SizedBox.shrink(),
         );
       },
@@ -179,9 +188,11 @@ class _IncomingCallHost extends StatefulWidget {
   const _IncomingCallHost({
     required this.data,
     required this.child,
+    this.callTransport,
   });
 
   final MobileDataController data;
+  final CallTransport? callTransport;
   final Widget child;
 
   @override
@@ -194,6 +205,7 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
   final Set<String> _seenCallIds = <String>{};
   _IncomingCallNotice? _incoming;
   _IncomingCallNotice? _pending;
+  Timer? _ringTimer;
   AppLifecycleState _lifecycle =
       WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed;
 
@@ -215,6 +227,17 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
 
   void _subscribe() {
     _events = widget.data.realtimeEvents.listen(_handleRealtimeEvent);
+  }
+
+  void _dismissCall(String callId) {
+    if (_incoming?.callId != callId && _pending?.callId != callId) return;
+    _ringTimer?.cancel();
+    _ringTimer = null;
+    if (!mounted) return;
+    setState(() {
+      if (_incoming?.callId == callId) _incoming = null;
+      if (_pending?.callId == callId) _pending = null;
+    });
   }
 
   void _handleRealtimeEvent(Map<String, dynamic> event) {
@@ -244,17 +267,22 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
       return;
     }
 
+    if (type == 'call.invite.updated') {
+      final callId = payload['callId'] as String?;
+      final userId = payload['userId'] as String?;
+      final status = payload['status'] as String?;
+      if (callId != null &&
+          userId == widget.data.currentUserId &&
+          status != null &&
+          status != 'pending') {
+        _dismissCall(callId);
+      }
+      return;
+    }
+
     if (type == 'call.ended') {
       final callId = payload['callId'] as String?;
-      if (callId == null) return;
-      if (_incoming?.callId == callId || _pending?.callId == callId) {
-        if (mounted) {
-          setState(() {
-            if (_incoming?.callId == callId) _incoming = null;
-            if (_pending?.callId == callId) _pending = null;
-          });
-        }
-      }
+      if (callId != null) _dismissCall(callId);
     }
   }
 
@@ -271,6 +299,23 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
         return;
       }
 
+      final transport = widget.callTransport;
+      final invite = transport == null ? null : await transport.callInvite(callId);
+      if (invite != null && !invite.pending) return;
+
+      final expiresAt =
+          invite?.expiresAt ?? call.startedAt.add(const Duration(seconds: 45));
+      if (!expiresAt.isAfter(DateTime.now().toUtc())) {
+        if (transport != null) {
+          unawaited(
+            transport
+                .respondToInvite(callId, status: 'missed')
+                .catchError((_) => invite),
+          );
+        }
+        return;
+      }
+
       final notice = _IncomingCallNotice(
         callId: callId,
         conversationId: conversationId,
@@ -280,6 +325,7 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
           conversationId,
           call.createdBy,
         ),
+        expiresAt: expiresAt,
       );
 
       if (_lifecycle == AppLifecycleState.resumed) {
@@ -288,9 +334,34 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
       } else {
         setState(() => _pending = notice);
       }
+      _scheduleExpiry(notice);
     } catch (_) {
       // A replayed call.started event may refer to a call that already ended.
     }
+  }
+
+  void _scheduleExpiry(_IncomingCallNotice notice) {
+    _ringTimer?.cancel();
+    final delay = notice.expiresAt.difference(DateTime.now().toUtc());
+    if (delay <= Duration.zero) {
+      unawaited(_markMissed(notice));
+      return;
+    }
+    _ringTimer = Timer(delay, () => unawaited(_markMissed(notice)));
+  }
+
+  Future<void> _markMissed(_IncomingCallNotice notice) async {
+    if (_incoming?.callId != notice.callId &&
+        _pending?.callId != notice.callId) {
+      return;
+    }
+
+    _dismissCall(notice.callId);
+    final transport = widget.callTransport;
+    if (transport == null) return;
+    try {
+      await transport.respondToInvite(notice.callId, status: 'missed');
+    } catch (_) {}
   }
 
   @override
@@ -317,36 +388,55 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
   Future<void> _restorePending(_IncomingCallNotice pending) async {
     try {
       final call = await widget.data.refreshCall(pending.callId);
+      final transport = widget.callTransport;
+      final invite =
+          transport == null ? null : await transport.callInvite(pending.callId);
       if (!mounted) return;
 
-      if (call.status != 'active') {
-        setState(() {
-          if (_pending?.callId == pending.callId) _pending = null;
-        });
+      if (call.status != 'active' || (invite != null && !invite.pending)) {
+        _dismissCall(pending.callId);
         return;
       }
 
+      final restored = invite == null
+          ? pending
+          : _IncomingCallNotice(
+              callId: pending.callId,
+              conversationId: pending.conversationId,
+              kind: pending.kind,
+              title: pending.title,
+              expiresAt: invite.expiresAt,
+            );
       setState(() {
         _pending = null;
-        _incoming = pending;
+        _incoming = restored;
       });
+      _scheduleExpiry(restored);
       unawaited(HapticFeedback.mediumImpact());
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        if (_pending?.callId == pending.callId) _pending = null;
-      });
+      _dismissCall(pending.callId);
     }
   }
 
-  void _decline() {
-    setState(() => _incoming = null);
+  Future<void> _decline() async {
+    final incoming = _incoming;
+    if (incoming == null) return;
+
+    _dismissCall(incoming.callId);
+    final transport = widget.callTransport;
+    if (transport == null) return;
+    try {
+      await transport.respondToInvite(incoming.callId, status: 'declined');
+    } catch (_) {}
   }
 
   void _accept() {
     final incoming = _incoming;
     if (incoming == null) return;
 
+    _ringTimer?.cancel();
+    _ringTimer = null;
     setState(() => _incoming = null);
     final encodedConversation = Uri.encodeComponent(incoming.conversationId);
     final encodedTitle = Uri.encodeComponent(incoming.title);
@@ -364,6 +454,7 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _ringTimer?.cancel();
     _events?.cancel();
     super.dispose();
   }
@@ -385,7 +476,7 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
               child: _IncomingCallCard(
                 notice: incoming,
                 onAccept: _accept,
-                onDecline: _decline,
+                onDecline: () => unawaited(_decline()),
               ),
             ),
           ),
@@ -400,12 +491,14 @@ class _IncomingCallNotice {
     required this.conversationId,
     required this.kind,
     required this.title,
+    required this.expiresAt,
   });
 
   final String callId;
   final String conversationId;
   final String kind;
   final String title;
+  final DateTime expiresAt;
 }
 
 class _IncomingCallCard extends StatelessWidget {
