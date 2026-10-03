@@ -4,6 +4,54 @@ import { pool } from "../db/index.js";
 
 export async function callHistoryRoutes(app: FastifyInstance): Promise<void> {
   app.get(
+    "/calls/history/unread",
+    { preHandler: app.authenticate },
+    async (request) => {
+      const userId = request.auth?.userId;
+      if (!userId) throw new Error("Missing user");
+
+      const result = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM call_invites ci
+         JOIN calls c ON c.id=ci.call_id
+         LEFT JOIN call_activity_reads car ON car.user_id=ci.user_id
+         WHERE ci.user_id=$1
+           AND c.created_by<>$1
+           AND ci.status IN ('missed','declined')
+           AND NOT EXISTS (
+             SELECT 1 FROM call_participants cp
+             WHERE cp.call_id=c.id AND cp.user_id=$1
+           )
+           AND COALESCE(ci.responded_at,ci.updated_at,ci.created_at)>
+             COALESCE(car.last_seen_at,to_timestamp(0))`,
+        [userId],
+      );
+
+      return { count: Number(result.rows[0]?.count ?? 0) };
+    },
+  );
+
+  app.post(
+    "/calls/history/read",
+    { preHandler: app.authenticate },
+    async (request) => {
+      const userId = request.auth?.userId;
+      if (!userId) throw new Error("Missing user");
+
+      const seenAt = new Date();
+      await pool.query(
+        `INSERT INTO call_activity_reads (user_id,last_seen_at,updated_at)
+         VALUES ($1,$2,$2)
+         ON CONFLICT (user_id)
+         DO UPDATE SET last_seen_at=EXCLUDED.last_seen_at,updated_at=EXCLUDED.updated_at`,
+        [userId, seenAt],
+      );
+
+      return { ok: true, seenAt: seenAt.toISOString() };
+    },
+  );
+
+  app.get(
     "/calls/history",
     { preHandler: app.authenticate },
     async (request) => {
