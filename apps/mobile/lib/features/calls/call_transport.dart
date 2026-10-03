@@ -61,7 +61,8 @@ class CallInvite {
   final DateTime expiresAt;
   final DateTime? respondedAt;
 
-  bool get pending => status == 'pending' && expiresAt.isAfter(DateTime.now().toUtc());
+  bool get pending =>
+      status == 'pending' && expiresAt.isAfter(DateTime.now().toUtc());
 
   factory CallInvite.fromJson(Map<String, dynamic> json) {
     return CallInvite(
@@ -136,7 +137,7 @@ abstract interface class CallTransport {
   Future<ActiveCall> refreshCall(String callId);
   Future<ActiveCall> joinCall(String callId);
   Future<CallInvite> callInvite(String callId);
-  Future<CallInvite> respondToInvite(
+  Future<CallInvite?> respondToInvite(
     String callId, {
     required String status,
   });
@@ -256,7 +257,7 @@ class DioCallTransport implements CallTransport {
   }
 
   @override
-  Future<CallInvite> respondToInvite(
+  Future<CallInvite?> respondToInvite(
     String callId, {
     required String status,
   }) async {
