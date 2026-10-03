@@ -4,8 +4,158 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+import 'call_notification_action.dart';
 
 typedef PushAccessTokenProvider = Future<String?> Function();
+
+const _callChannelId = 'pulsemesh_calls';
+const _callCategoryId = 'pulsemesh_call';
+const _acceptActionId = 'call.accept';
+const _declineActionId = 'call.decline';
+
+final FlutterLocalNotificationsPlugin _localNotifications =
+    FlutterLocalNotificationsPlugin();
+bool _localNotificationsInitialized = false;
+
+@pragma('vm:entry-point')
+Future<void> pulseMeshFirebaseBackgroundHandler(RemoteMessage message) async {
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp();
+    }
+    await _ensureLocalNotificationsInitialized();
+    await _showCallNotification(message);
+  } catch (_) {
+    // Native Firebase configuration is optional in local/dev builds.
+  }
+}
+
+void registerPulseMeshPushBackgroundHandler() {
+  FirebaseMessaging.onBackgroundMessage(pulseMeshFirebaseBackgroundHandler);
+}
+
+Future<void> _ensureLocalNotificationsInitialized() async {
+  if (_localNotificationsInitialized) return;
+
+  const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+  final darwin = DarwinInitializationSettings(
+    requestAlertPermission: false,
+    requestBadgePermission: false,
+    requestSoundPermission: false,
+    notificationCategories: <DarwinNotificationCategory>[
+      DarwinNotificationCategory(
+        _callCategoryId,
+        actions: <DarwinNotificationAction>[
+          DarwinNotificationAction.plain(
+            _acceptActionId,
+            'Accept',
+            options: <DarwinNotificationActionOption>{
+              DarwinNotificationActionOption.foreground,
+            },
+          ),
+          DarwinNotificationAction.plain(
+            _declineActionId,
+            'Decline',
+            options: <DarwinNotificationActionOption>{
+              DarwinNotificationActionOption.destructive,
+              DarwinNotificationActionOption.foreground,
+            },
+          ),
+        ],
+      ),
+    ],
+  );
+
+  await _localNotifications.initialize(
+    settings: InitializationSettings(android: android, iOS: darwin),
+    onDidReceiveNotificationResponse: MobilePushService.handleNotificationResponse,
+  );
+  _localNotificationsInitialized = true;
+}
+
+int _notificationIdForCall(String callId) {
+  var hash = 0;
+  for (final unit in callId.codeUnits) {
+    hash = 0x1fffffff & (hash * 31 + unit);
+  }
+  return hash;
+}
+
+CallNotificationAction? _callActionFromMessage(RemoteMessage message) {
+  final callId = message.data['callId'];
+  final conversationId = message.data['conversationId'];
+  final kind = message.data['callKind'];
+  if (callId == null ||
+      callId.isEmpty ||
+      conversationId == null ||
+      conversationId.isEmpty ||
+      (kind != 'voice' && kind != 'video')) {
+    return null;
+  }
+
+  return CallNotificationAction(
+    type: CallNotificationActionType.open,
+    callId: callId,
+    conversationId: conversationId,
+    kind: kind,
+    title: message.data['callTitle'],
+  );
+}
+
+Future<void> _showCallNotification(RemoteMessage message) async {
+  final action = _callActionFromMessage(message);
+  if (action == null) return;
+
+  final video = action.isVideo;
+  final title = message.notification?.title ??
+      (video ? 'Incoming video call' : 'Incoming voice call');
+  final body = message.notification?.body ??
+      message.data['body'] ??
+      'Incoming PulseMesh call';
+
+  final details = NotificationDetails(
+    android: AndroidNotificationDetails(
+      _callChannelId,
+      'PulseMesh calls',
+      channelDescription: 'Incoming PulseMesh voice and video calls',
+      importance: Importance.max,
+      priority: Priority.max,
+      category: AndroidNotificationCategory.call,
+      fullScreenIntent: true,
+      timeoutAfter: 45000,
+      actions: const <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          _declineActionId,
+          'Decline',
+          showsUserInterface: true,
+          cancelNotification: true,
+        ),
+        AndroidNotificationAction(
+          _acceptActionId,
+          'Accept',
+          showsUserInterface: true,
+          cancelNotification: true,
+        ),
+      ],
+    ),
+    iOS: const DarwinNotificationDetails(
+      categoryIdentifier: _callCategoryId,
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    ),
+  );
+
+  await _localNotifications.show(
+    id: _notificationIdForCall(action.callId),
+    title: title,
+    body: body,
+    notificationDetails: details,
+    payload: action.toPayload(),
+  );
+}
 
 class MobilePushService {
   MobilePushService({
@@ -27,9 +177,12 @@ class MobilePushService {
 
   static final StreamController<Map<String, dynamic>> _openedCallEvents =
       StreamController<Map<String, dynamic>>.broadcast();
+  static final StreamController<CallNotificationAction> _callActions =
+      StreamController<CallNotificationAction>.broadcast();
 
   static Stream<Map<String, dynamic>> get openedCallEvents =>
       _openedCallEvents.stream;
+  static Stream<CallNotificationAction> get callActions => _callActions.stream;
 
   final PushAccessTokenProvider _accessToken;
   final FirebaseMessaging? _messagingOverride;
@@ -37,6 +190,7 @@ class MobilePushService {
 
   StreamSubscription<String>? _tokenRefreshSubscription;
   StreamSubscription<RemoteMessage>? _openedSubscription;
+  StreamSubscription<RemoteMessage>? _foregroundSubscription;
   bool _initialized = false;
   bool _disposed = false;
 
@@ -48,6 +202,7 @@ class MobilePushService {
       if (Firebase.apps.isEmpty) {
         await Firebase.initializeApp();
       }
+      await _ensureLocalNotificationsInitialized();
 
       final messaging = _messagingOverride ?? FirebaseMessaging.instance;
       final permission = await messaging.requestPermission(
@@ -70,9 +225,21 @@ class MobilePushService {
         unawaited(_registerToken(token));
       });
 
+      _foregroundSubscription = FirebaseMessaging.onMessage.listen((message) {
+        unawaited(_showCallNotification(message));
+      });
+
       _openedSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
         _handleOpenedMessage,
       );
+
+      final launchDetails =
+          await _localNotifications.getNotificationAppLaunchDetails();
+      final launchResponse = launchDetails?.notificationResponse;
+      if (launchDetails?.didNotificationLaunchApp == true &&
+          launchResponse != null) {
+        handleNotificationResponse(launchResponse);
+      }
 
       final initialMessage = await messaging.getInitialMessage();
       if (initialMessage != null) {
@@ -106,19 +273,28 @@ class MobilePushService {
     }
   }
 
+  static void handleNotificationResponse(NotificationResponse response) {
+    final action = CallNotificationAction.tryParse(
+      response.payload,
+      actionId: response.actionId,
+    );
+    if (action == null || _callActions.isClosed) return;
+    _callActions.add(action);
+  }
+
+  static Future<void> cancelCallNotification(String callId) async {
+    if (callId.isEmpty) return;
+    try {
+      await _ensureLocalNotificationsInitialized();
+      await _localNotifications.cancel(id: _notificationIdForCall(callId));
+    } catch (_) {}
+  }
+
   void _handleOpenedMessage(RemoteMessage message) {
     if (_disposed) return;
 
-    final callId = message.data['callId'];
-    final kind = message.data['callKind'];
-    final conversationId = message.data['conversationId'];
-    if (callId == null ||
-        callId.isEmpty ||
-        conversationId == null ||
-        conversationId.isEmpty ||
-        (kind != 'voice' && kind != 'video')) {
-      return;
-    }
+    final action = _callActionFromMessage(message);
+    if (action == null) return;
 
     final occurredAt = message.sentTime?.toUtc() ?? DateTime.now().toUtc();
     _openedCallEvents.add({
@@ -126,10 +302,10 @@ class MobilePushService {
       'room': 'user:push',
       'occurredAt': occurredAt.toIso8601String(),
       'payload': {
-        'callId': callId,
-        'kind': kind,
+        'callId': action.callId,
+        'kind': action.kind,
         'channelId': null,
-        'conversationId': conversationId,
+        'conversationId': action.conversationId,
         'startedAt': occurredAt.toIso8601String(),
       },
     });
@@ -139,5 +315,6 @@ class MobilePushService {
     _disposed = true;
     await _tokenRefreshSubscription?.cancel();
     await _openedSubscription?.cancel();
+    await _foregroundSubscription?.cancel();
   }
 }
