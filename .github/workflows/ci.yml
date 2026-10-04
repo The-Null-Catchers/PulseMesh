@@ -24,11 +24,7 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --frozen-lockfile
-      - run: |
-          pnpm exec prettier apps/api/src/bookmarks/routes.ts --write
-          cat apps/api/src/bookmarks/routes.ts
-          git diff -- apps/api/src/bookmarks/routes.ts
-          exit 1
+      - run: pnpm format:check
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
