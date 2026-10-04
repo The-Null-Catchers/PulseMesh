@@ -18,6 +18,8 @@ import 'features/inbox/inbox_realtime.dart';
 import 'features/inbox/mobile_data_controller.dart';
 import 'features/inbox/mobile_data_scope.dart';
 import 'features/messages/room_screen.dart';
+import 'features/notifications/call_notification_action.dart';
+import 'features/notifications/mobile_push_service.dart';
 import 'offline/models.dart';
 import 'theme/app_theme.dart';
 
@@ -207,6 +209,7 @@ class _IncomingCallHost extends StatefulWidget {
 class _IncomingCallHostState extends State<_IncomingCallHost>
     with WidgetsBindingObserver {
   StreamSubscription<Map<String, dynamic>>? _events;
+  StreamSubscription<CallNotificationAction>? _notificationActions;
   final Set<String> _seenCallIds = <String>{};
   _IncomingCallNotice? _incoming;
   _IncomingCallNotice? _pending;
@@ -219,6 +222,9 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _subscribe();
+    _notificationActions = MobilePushService.callActions.listen(
+      (action) => unawaited(_handleNotificationAction(action)),
+    );
   }
 
   @override
@@ -235,6 +241,7 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
   }
 
   void _dismissCall(String callId) {
+    unawaited(MobilePushService.cancelCallNotification(callId));
     if (_incoming?.callId != callId && _pending?.callId != callId) return;
     _ringTimer?.cancel();
     _ringTimer = null;
@@ -288,6 +295,57 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
     if (type == 'call.ended') {
       final callId = payload['callId'] as String?;
       if (callId != null) _dismissCall(callId);
+    }
+  }
+
+  Future<void> _handleNotificationAction(CallNotificationAction action) async {
+    await MobilePushService.cancelCallNotification(action.callId);
+    if (!mounted) return;
+
+    if (action.type == CallNotificationActionType.open) {
+      _seenCallIds.remove(action.callId);
+      await _resolveIncomingCall(
+        callId: action.callId,
+        conversationId: action.conversationId,
+        kind: action.kind,
+      );
+      return;
+    }
+
+    final transport = widget.callTransport;
+    if (transport == null) return;
+
+    try {
+      final call = await widget.data.refreshCall(action.callId);
+      final invite = await transport.callInvite(action.callId);
+      if (!mounted) return;
+      if (call.status != 'active' || !invite.pending) {
+        _dismissCall(action.callId);
+        return;
+      }
+
+      if (action.type == CallNotificationActionType.decline) {
+        await transport.respondToInvite(action.callId, status: 'declined');
+        _dismissCall(action.callId);
+        return;
+      }
+
+      _dismissCall(action.callId);
+      final title = action.title?.trim().isNotEmpty == true
+          ? action.title!.trim()
+          : _incomingConversationTitle(
+              widget.data,
+              action.conversationId,
+              call.createdBy,
+            );
+      _openCall(
+        callId: action.callId,
+        conversationId: action.conversationId,
+        kind: action.kind,
+        title: title,
+      );
+    } catch (_) {
+      _dismissCall(action.callId);
     }
   }
 
@@ -440,14 +498,26 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
     final incoming = _incoming;
     if (incoming == null) return;
 
-    _ringTimer?.cancel();
-    _ringTimer = null;
-    setState(() => _incoming = null);
-    final encodedConversation = Uri.encodeComponent(incoming.conversationId);
-    final encodedTitle = Uri.encodeComponent(incoming.title);
-    final path = incoming.kind == 'video'
-        ? '/call/video/${incoming.callId}'
-        : '/call/voice/${incoming.callId}';
+    _dismissCall(incoming.callId);
+    _openCall(
+      callId: incoming.callId,
+      conversationId: incoming.conversationId,
+      kind: incoming.kind,
+      title: incoming.title,
+    );
+  }
+
+  void _openCall({
+    required String callId,
+    required String conversationId,
+    required String kind,
+    required String title,
+  }) {
+    final encodedConversation = Uri.encodeComponent(conversationId);
+    final encodedTitle = Uri.encodeComponent(title);
+    final path = kind == 'video'
+        ? '/call/video/$callId'
+        : '/call/voice/$callId';
 
     unawaited(
       router.push(
@@ -461,6 +531,7 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
     WidgetsBinding.instance.removeObserver(this);
     _ringTimer?.cancel();
     _events?.cancel();
+    _notificationActions?.cancel();
     super.dispose();
   }
 
