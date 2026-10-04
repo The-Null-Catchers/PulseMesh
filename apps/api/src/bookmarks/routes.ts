@@ -40,48 +40,45 @@ async function assertMessageAccess(
 }
 
 export async function bookmarkRoutes(app: FastifyInstance): Promise<void> {
-  app.get(
-    "/bookmarks",
-    { preHandler: app.authenticate },
-    async (request) => {
-      const query = z
-        .object({
-          cursor: z.string().optional(),
-          limit: z.coerce.number().int().min(1).max(100).default(50),
-        })
-        .parse(request.query);
-      const userId = request.auth?.userId;
-      if (!userId) throw new Error("Missing authenticated user");
+  app.get("/bookmarks", { preHandler: app.authenticate }, async (request) => {
+    const query = z
+      .object({
+        cursor: z.string().optional(),
+        limit: z.coerce.number().int().min(1).max(100).default(50),
+      })
+      .parse(request.query);
+    const userId = request.auth?.userId;
+    if (!userId) throw new Error("Missing authenticated user");
 
-      const values: unknown[] = [userId];
-      let cursorClause = "";
-      if (query.cursor) {
-        const cursor = decodeCursor<{
-          createdAt: string;
-          messageId: string;
-        }>(query.cursor);
-        values.push(cursor.createdAt, cursor.messageId);
-        cursorClause =
-          "AND (b.created_at,b.message_id) < ($2::timestamptz,$3::uuid)";
-      }
-      values.push(query.limit + 1);
+    const values: unknown[] = [userId];
+    let cursorClause = "";
+    if (query.cursor) {
+      const cursor = decodeCursor<{
+        createdAt: string;
+        messageId: string;
+      }>(query.cursor);
+      values.push(cursor.createdAt, cursor.messageId);
+      cursorClause =
+        "AND (b.created_at,b.message_id) < ($2::timestamptz,$3::uuid)";
+    }
+    values.push(query.limit + 1);
 
-      const result = await pool.query<{
-        message_id: string;
-        note: string | null;
-        bookmark_created_at: Date;
-        bookmark_updated_at: Date;
-        body: string;
-        message_created_at: Date;
-        edited_at: Date | null;
-        channel_id: string | null;
-        conversation_id: string | null;
-        sender_id: string;
-        username: string;
-        display_name: string;
-        avatar_url: string | null;
-      }>(
-        `SELECT
+    const result = await pool.query<{
+      message_id: string;
+      note: string | null;
+      bookmark_created_at: Date;
+      bookmark_updated_at: Date;
+      body: string;
+      message_created_at: Date;
+      edited_at: Date | null;
+      channel_id: string | null;
+      conversation_id: string | null;
+      sender_id: string;
+      username: string;
+      display_name: string;
+      avatar_url: string | null;
+    }>(
+      `SELECT
           b.message_id,b.note,b.created_at AS bookmark_created_at,
           b.updated_at AS bookmark_updated_at,m.body,
           m.created_at AS message_created_at,m.edited_at,m.channel_id,
@@ -117,44 +114,43 @@ export async function bookmarkRoutes(app: FastifyInstance): Promise<void> {
            ${cursorClause}
          ORDER BY b.created_at DESC,b.message_id DESC
          LIMIT $${values.length}`,
-        values,
-      );
+      values,
+    );
 
-      const hasMore = result.rows.length > query.limit;
-      const rows = result.rows.slice(0, query.limit);
-      const last = rows[rows.length - 1];
+    const hasMore = result.rows.length > query.limit;
+    const rows = result.rows.slice(0, query.limit);
+    const last = rows[rows.length - 1];
 
-      return {
-        items: rows.map((row) => ({
-          messageId: row.message_id,
-          note: row.note,
-          createdAt: row.bookmark_created_at.toISOString(),
-          updatedAt: row.bookmark_updated_at.toISOString(),
-          message: {
-            id: row.message_id,
-            channelId: row.channel_id,
-            conversationId: row.conversation_id,
-            body: row.body,
-            createdAt: row.message_created_at.toISOString(),
-            editedAt: row.edited_at?.toISOString() ?? null,
-            sender: {
-              id: row.sender_id,
-              username: row.username,
-              displayName: row.display_name,
-              avatarUrl: row.avatar_url,
-            },
+    return {
+      items: rows.map((row) => ({
+        messageId: row.message_id,
+        note: row.note,
+        createdAt: row.bookmark_created_at.toISOString(),
+        updatedAt: row.bookmark_updated_at.toISOString(),
+        message: {
+          id: row.message_id,
+          channelId: row.channel_id,
+          conversationId: row.conversation_id,
+          body: row.body,
+          createdAt: row.message_created_at.toISOString(),
+          editedAt: row.edited_at?.toISOString() ?? null,
+          sender: {
+            id: row.sender_id,
+            username: row.username,
+            displayName: row.display_name,
+            avatarUrl: row.avatar_url,
           },
-        })),
-        nextCursor:
-          hasMore && last
-            ? encodeCursor({
-                createdAt: last.bookmark_created_at.toISOString(),
-                messageId: last.message_id,
-              })
-            : null,
-      };
-    },
-  );
+        },
+      })),
+      nextCursor:
+        hasMore && last
+          ? encodeCursor({
+              createdAt: last.bookmark_created_at.toISOString(),
+              messageId: last.message_id,
+            })
+          : null,
+    };
+  });
 
   app.put(
     "/messages/:messageId/bookmark",
