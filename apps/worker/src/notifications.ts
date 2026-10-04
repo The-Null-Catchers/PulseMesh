@@ -33,6 +33,12 @@ type QuietHours = {
   timezone: string;
 };
 
+type NotificationDevice = {
+  id: string;
+  fcm_token: string;
+  platform: "android" | "ios";
+};
+
 const transport =
   process.env.SMTP_HOST && process.env.SMTP_USER
     ? nodemailer.createTransport({
@@ -194,39 +200,13 @@ async function destinationMuted(
   return false;
 }
 
-async function sendFcm(
-  userId: string,
-  title: string,
-  body: string,
-  payload: NotificationPayload,
-): Promise<number> {
-  if (!messaging) return 0;
-
-  const devices = await workerPool.query<{
-    id: string;
-    fcm_token: string;
-  }>(
-    "SELECT id,fcm_token FROM notification_devices WHERE user_id=$1 AND enabled=true ORDER BY last_seen_at DESC LIMIT 500",
-    [userId],
-  );
-  if (devices.rows.length === 0) return 0;
-
-  const response = await messaging.sendEachForMulticast({
-    tokens: devices.rows.map((device) => device.fcm_token),
-    notification: { title, body },
-    data: {
-      messageId: payload.messageId ?? "",
-      channelId: payload.channelId ?? "",
-      conversationId: payload.conversationId ?? "",
-      callId: payload.callId ?? "",
-      callKind: payload.callKind ?? "",
-      deepLink: payload.deepLink ?? "",
-    },
-  });
-
-  for (let index = 0; index < response.responses.length; index += 1) {
-    const item = response.responses[index];
-    const device = devices.rows[index];
+async function disableInvalidTokens(
+  devices: NotificationDevice[],
+  responses: Awaited<ReturnType<NonNullable<typeof messaging>["sendEachForMulticast"]>>["responses"],
+): Promise<void> {
+  for (let index = 0; index < responses.length; index += 1) {
+    const item = responses[index];
+    const device = devices[index];
     if (!item || !device || item.success) continue;
 
     if (
@@ -239,8 +219,92 @@ async function sendFcm(
       );
     }
   }
+}
 
-  return response.successCount;
+async function sendFcm(
+  userId: string,
+  title: string,
+  body: string,
+  payload: NotificationPayload,
+): Promise<number> {
+  if (!messaging) return 0;
+
+  const devices = await workerPool.query<NotificationDevice>(
+    "SELECT id,fcm_token,platform FROM notification_devices WHERE user_id=$1 AND enabled=true ORDER BY last_seen_at DESC LIMIT 500",
+    [userId],
+  );
+  if (devices.rows.length === 0) return 0;
+
+  const data = {
+    messageId: payload.messageId ?? "",
+    channelId: payload.channelId ?? "",
+    conversationId: payload.conversationId ?? "",
+    callId: payload.callId ?? "",
+    callKind: payload.callKind ?? "",
+    deepLink: payload.deepLink ?? "",
+    callTitle: title,
+    body,
+  };
+  const isCall = Boolean(payload.callId && payload.callKind);
+  const androidDevices = devices.rows.filter(
+    (device) => device.platform === "android",
+  );
+  const iosDevices = devices.rows.filter((device) => device.platform === "ios");
+
+  let successCount = 0;
+
+  if (androidDevices.length > 0) {
+    const response = await messaging.sendEachForMulticast({
+      tokens: androidDevices.map((device) => device.fcm_token),
+      ...(isCall ? {} : { notification: { title, body } }),
+      data,
+      ...(isCall
+        ? {
+            android: {
+              priority: "high" as const,
+              ttl: 45_000,
+              collapseKey: payload.callId ?? undefined,
+            },
+          }
+        : {}),
+    });
+    await disableInvalidTokens(androidDevices, response.responses);
+    successCount += response.successCount;
+  }
+
+  if (iosDevices.length > 0) {
+    const response = await messaging.sendEachForMulticast({
+      tokens: iosDevices.map((device) => device.fcm_token),
+      notification: { title, body },
+      data,
+      ...(isCall
+        ? {
+            apns: {
+              headers: {
+                "apns-priority": "10",
+                "apns-expiration": String(
+                  Math.floor(Date.now() / 1000) + 45,
+                ),
+                ...(payload.callId
+                  ? { "apns-collapse-id": payload.callId }
+                  : {}),
+              },
+              payload: {
+                aps: {
+                  category: "pulsemesh_call",
+                  sound: "default",
+                  contentAvailable: true,
+                },
+              },
+            },
+          }
+        : {}),
+    });
+    await disableInvalidTokens(iosDevices, response.responses);
+    successCount += response.successCount;
+  }
+
+  return successCount;
 }
 
 async function sendWebPush(
