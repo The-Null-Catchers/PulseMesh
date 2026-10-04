@@ -24,11 +24,6 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --frozen-lockfile
-      - name: Show Prettier diff for worker notifications
-        run: |
-          cp apps/worker/src/notifications.ts /tmp/notifications.before.ts
-          pnpm exec prettier apps/worker/src/notifications.ts --write
-          diff -u /tmp/notifications.before.ts apps/worker/src/notifications.ts || true
       - run: pnpm format:check
       - run: pnpm typecheck
       - run: pnpm test
