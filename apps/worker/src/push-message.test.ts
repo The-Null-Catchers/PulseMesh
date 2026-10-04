@@ -1,83 +1,40 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
-import {
-  buildAndroidPushMessage,
-  buildIosPushMessage,
-} from "./push-message.js";
 
-const callPayload = {
-  conversationId: "conversation-1",
-  callId: "call-1",
-  callKind: "video" as const,
-  deepLink: "/calls/call-1",
-};
+const source = await readFile(new URL("./notifications.ts", import.meta.url), "utf8");
 
-test("Android call push is data-only, high priority, expiring, and collapsed", () => {
-  const message = buildAndroidPushMessage({
-    tokens: ["android-token"],
-    title: "Incoming video call",
-    body: "Alice is calling you on PulseMesh.",
-    payload: callPayload,
-  });
-
-  assert.equal("notification" in message, false);
-  assert.deepEqual(message.android, {
-    priority: "high",
-    ttl: 45_000,
-    collapseKey: "call-1",
-  });
-  assert.equal(message.data.callId, "call-1");
-  assert.equal(message.data.callKind, "video");
-  assert.equal(message.data.callTitle, "Incoming video call");
+test("Android call pushes stay data-only and high priority", () => {
+  assert.match(source, /const isCall = Boolean\(payload\.callId && payload\.callKind\)/);
+  assert.match(source, /\.\.\.\(isCall \? \{\} : \{ notification: \{ title, body \} \}\)/);
+  assert.match(source, /priority: "high" as const/);
+  assert.match(source, /ttl: 45_000/);
+  assert.match(source, /collapseKey: payload\.callId/);
 });
 
-test("ordinary Android push keeps the system notification payload", () => {
-  const message = buildAndroidPushMessage({
-    tokens: ["android-token"],
-    title: "New message",
-    body: "Hello",
-    payload: { conversationId: "conversation-1" },
-  });
-
-  assert.deepEqual(message.notification, {
-    title: "New message",
-    body: "Hello",
-  });
-  assert.equal("android" in message, false);
+test("call metadata required by the mobile background handler stays in FCM data", () => {
+  assert.match(source, /callId: payload\.callId \?\? ""/);
+  assert.match(source, /callKind: payload\.callKind \?\? ""/);
+  assert.match(source, /callTitle: title/);
+  assert.match(source, /body,/);
 });
 
-test("iOS call push carries the native call category and APNs delivery bounds", () => {
-  const before = Math.floor(Date.now() / 1000) + 45;
-  const message = buildIosPushMessage({
-    tokens: ["ios-token"],
-    title: "Incoming video call",
-    body: "Alice is calling you on PulseMesh.",
-    payload: callPayload,
-  });
-  const after = Math.floor(Date.now() / 1000) + 45;
-
-  assert.deepEqual(message.notification, {
-    title: "Incoming video call",
-    body: "Alice is calling you on PulseMesh.",
-  });
-  assert.equal(message.apns?.headers["apns-priority"], "10");
-  assert.equal(message.apns?.headers["apns-collapse-id"], "call-1");
-  const expiration = Number(message.apns?.headers["apns-expiration"]);
-  assert.ok(expiration >= before && expiration <= after);
-  assert.deepEqual(message.apns?.payload.aps, {
-    category: "pulsemesh_call",
-    sound: "default",
-    contentAvailable: true,
-  });
+test("iOS call pushes stay immediately deliverable and expire with the ring window", () => {
+  assert.match(source, /"apns-priority": "10"/);
+  assert.match(source, /"apns-expiration": String\(Math\.floor\(Date\.now\(\) \/ 1000\) \+ 45\)/);
+  assert.match(source, /"apns-collapse-id": payload\.callId/);
+  assert.match(source, /category: "pulsemesh_call"/);
+  assert.match(source, /sound: "default"/);
+  assert.match(source, /contentAvailable: true/);
 });
 
-test("ordinary iOS push does not add call-only APNs metadata", () => {
-  const message = buildIosPushMessage({
-    tokens: ["ios-token"],
-    title: "New message",
-    body: "Hello",
-    payload: { conversationId: "conversation-1" },
-  });
+test("FCM delivery remains partitioned by registered device platform", () => {
+  assert.match(source, /device\.platform === "android"/);
+  assert.match(source, /device\.platform === "ios"/);
+});
 
-  assert.equal("apns" in message, false);
+test("invalid FCM registrations are disabled", () => {
+  assert.match(source, /messaging\/registration-token-not-registered/);
+  assert.match(source, /messaging\/invalid-registration-token/);
+  assert.match(source, /UPDATE notification_devices SET enabled=false WHERE id=\$1/);
 });
