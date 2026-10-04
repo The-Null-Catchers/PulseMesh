@@ -1,7 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { decodeCursor, encodeCursor } from "@pulsemesh/shared";
-import { canAccessChannel, canAccessConversation } from "../authorization/service.js";
+import {
+  canAccessChannel,
+  canAccessConversation,
+} from "../authorization/service.js";
 import { pool } from "../db/index.js";
 import { AppError } from "../errors.js";
 
