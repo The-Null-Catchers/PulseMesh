@@ -8,7 +8,7 @@ import {
   initializeApp,
   type ServiceAccount,
 } from "firebase-admin/app";
-import { getMessaging } from "firebase-admin/messaging";
+import { getMessaging, type BatchResponse } from "firebase-admin/messaging";
 import {
   activeViewRedisKey,
   roomFromActiveViewMember,
@@ -202,7 +202,7 @@ async function destinationMuted(
 
 async function disableInvalidTokens(
   devices: NotificationDevice[],
-  responses: Awaited<ReturnType<NonNullable<typeof messaging>["sendEachForMulticast"]>>["responses"],
+  responses: BatchResponse["responses"],
 ): Promise<void> {
   for (let index = 0; index < responses.length; index += 1) {
     const item = responses[index];
@@ -263,7 +263,7 @@ async function sendFcm(
             android: {
               priority: "high" as const,
               ttl: 45_000,
-              collapseKey: payload.callId ?? undefined,
+              ...(payload.callId ? { collapseKey: payload.callId } : {}),
             },
           }
         : {}),
