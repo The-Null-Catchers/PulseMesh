@@ -8,7 +8,10 @@ import {
   initializeApp,
   type ServiceAccount,
 } from "firebase-admin/app";
-import { getMessaging, type BatchResponse } from "firebase-admin/messaging";
+import {
+  getMessaging,
+  type BatchResponse,
+} from "firebase-admin/messaging";
 import {
   activeViewRedisKey,
   roomFromActiveViewMember,
@@ -284,7 +287,9 @@ async function sendFcm(
             apns: {
               headers: {
                 "apns-priority": "10",
-                "apns-expiration": String(Math.floor(Date.now() / 1000) + 45),
+                "apns-expiration": String(
+                  Math.floor(Date.now() / 1000) + 45,
+                ),
                 ...(payload.callId
                   ? { "apns-collapse-id": payload.callId }
                   : {}),
