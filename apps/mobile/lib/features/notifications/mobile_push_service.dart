@@ -18,6 +18,7 @@ const _declineActionId = 'call.decline';
 final FlutterLocalNotificationsPlugin _localNotifications =
     FlutterLocalNotificationsPlugin();
 bool _localNotificationsInitialized = false;
+bool _backgroundHandlerRegistered = false;
 
 @pragma('vm:entry-point')
 Future<void> pulseMeshFirebaseBackgroundHandler(RemoteMessage message) async {
@@ -33,7 +34,9 @@ Future<void> pulseMeshFirebaseBackgroundHandler(RemoteMessage message) async {
 }
 
 void registerPulseMeshPushBackgroundHandler() {
+  if (_backgroundHandlerRegistered) return;
   FirebaseMessaging.onBackgroundMessage(pulseMeshFirebaseBackgroundHandler);
+  _backgroundHandlerRegistered = true;
 }
 
 Future<void> _ensureLocalNotificationsInitialized() async {
@@ -197,6 +200,7 @@ class MobilePushService {
   Future<void> initialize() async {
     if (_initialized || _disposed) return;
     _initialized = true;
+    registerPulseMeshPushBackgroundHandler();
 
     try {
       if (Firebase.apps.isEmpty) {
@@ -279,6 +283,7 @@ class MobilePushService {
       actionId: response.actionId,
     );
     if (action == null || _callActions.isClosed) return;
+    unawaited(cancelCallNotification(action.callId));
     _callActions.add(action);
   }
 
@@ -295,6 +300,7 @@ class MobilePushService {
 
     final action = _callActionFromMessage(message);
     if (action == null) return;
+    unawaited(cancelCallNotification(action.callId));
 
     final occurredAt = message.sentTime?.toUtc() ?? DateTime.now().toUtc();
     _openedCallEvents.add({
