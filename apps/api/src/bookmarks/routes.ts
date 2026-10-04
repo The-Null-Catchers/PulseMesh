@@ -56,9 +56,10 @@ export async function bookmarkRoutes(app: FastifyInstance): Promise<void> {
       const values: unknown[] = [userId];
       let cursorClause = "";
       if (query.cursor) {
-        const cursor = decodeCursor<{ createdAt: string; messageId: string }>(
-          query.cursor,
-        );
+        const cursor = decodeCursor<{
+          createdAt: string;
+          messageId: string;
+        }>(query.cursor);
         values.push(cursor.createdAt, cursor.messageId);
         cursorClause =
           "AND (b.created_at,b.message_id) < ($2::timestamptz,$3::uuid)";
