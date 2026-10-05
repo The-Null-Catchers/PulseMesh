@@ -213,7 +213,10 @@ export function useMessageActions({
         method: "PUT",
         body: JSON.stringify({ note: null }),
       }),
-    onSuccess: () => setMessageActionError(null),
+    onSuccess: () => {
+      setMessageActionError(null);
+      void queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
+    },
     onError: (error) =>
       setMessageActionError(
         error instanceof Error ? error.message : "Bookmark failed",
