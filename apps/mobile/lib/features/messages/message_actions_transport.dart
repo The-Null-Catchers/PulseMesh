@@ -45,7 +45,9 @@ class DioMessageActionsTransport implements MessageActionsTransport {
     required String baseUrl,
     required MessageActionAccessTokenProvider accessToken,
     Dio? dio,
-  }) : _accessToken = accessToken,
+  }) : baseUrl = baseUrl,
+       accessTokenProvider = accessToken,
+       _accessToken = accessToken,
        _dio =
            dio ??
            Dio(
@@ -59,6 +61,9 @@ class DioMessageActionsTransport implements MessageActionsTransport {
 
   final Dio _dio;
   final MessageActionAccessTokenProvider _accessToken;
+
+  final String baseUrl;
+  final MessageActionAccessTokenProvider accessTokenProvider;
 
   Future<Options> _options() async {
     final token = await _accessToken();
