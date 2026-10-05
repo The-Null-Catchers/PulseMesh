@@ -300,9 +300,12 @@ function SavedMessagesClientInner() {
       <main className="grid min-h-screen place-items-center bg-[#071116] p-6 text-slate-100">
         <div className="max-w-md rounded-[28px] border border-white/10 bg-[#0b171c] p-8 text-center">
           <Bookmark className="mx-auto size-7 text-[#68e0cf]" />
-          <h1 className="mt-4 text-xl font-semibold">Sign in to view saved messages</h1>
+          <h1 className="mt-4 text-xl font-semibold">
+            Sign in to view saved messages
+          </h1>
           <p className="mt-2 text-sm leading-6 text-slate-500">
-            Your saved messages are private and require an active PulseMesh session.
+            Your saved messages are private and require an active PulseMesh
+            session.
           </p>
           <Link
             href="/"
