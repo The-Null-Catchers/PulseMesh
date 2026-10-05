@@ -10,6 +10,7 @@ import 'package:pulsemesh/features/inbox/inbox_transport.dart';
 import 'package:pulsemesh/features/inbox/mobile_data_controller.dart';
 import 'package:pulsemesh/features/inbox/mobile_data_scope.dart';
 import 'package:pulsemesh/features/messages/message_actions_transport.dart';
+import 'package:pulsemesh/features/messages/saved_message.dart';
 import 'package:pulsemesh/features/workspaces/workspace_models.dart';
 import 'package:pulsemesh/features/workspaces/workspace_transport.dart';
 import 'package:pulsemesh/main.dart';
@@ -92,6 +93,12 @@ class EmptyMessageActionsTransport implements MessageActionsTransport {
     required String messageId,
     String? note,
   }) async {}
+
+  @override
+  Future<List<SavedMessage>> savedMessages({int limit = 100}) async => const [];
+
+  @override
+  Future<void> removeBookmark({required String messageId}) async {}
 
   @override
   Future<void> pinMessage({
