@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulsemesh_mobile/features/profile/profile_session.dart';
+import 'package:pulsemesh/features/profile/profile_session.dart';
 
 void main() {
   test('parses session payload and marks the current session', () {
