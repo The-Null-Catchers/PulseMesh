@@ -83,26 +83,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final existing = _profile;
     if (existing == null) return;
 
+    final displayName = _displayName.text.trim();
+    final username = _username.text.trim();
+    final bio = _bio.text.trim();
+    final status = _status.text.trim();
+    final timezone = _timezone.text.trim();
+    final avatarUrl = _avatarUrl.text.trim();
+    final changes = <String, dynamic>{};
+
+    if (username != existing.username) changes['username'] = username;
+    if (displayName != existing.displayName) {
+      changes['displayName'] = displayName;
+    }
+    if (bio != (existing.bio ?? '')) {
+      changes['bio'] = bio.isEmpty ? null : bio;
+    }
+    if (status != (existing.statusText ?? '')) {
+      changes['statusText'] = status.isEmpty ? null : status;
+    }
+    if (timezone != existing.timezone) changes['timezone'] = timezone;
+    if (avatarUrl != (existing.avatarUrl ?? '')) {
+      changes['avatarUrl'] = avatarUrl.isEmpty ? null : avatarUrl;
+    }
+
+    if (changes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No profile changes to save.')),
+      );
+      return;
+    }
+
     setState(() => _saving = true);
     try {
-      final profile = await widget.transport.updateProfile(
-        username: _username.text.trim() == existing.username
-            ? null
-            : _username.text.trim(),
-        displayName: _displayName.text.trim() == existing.displayName
-            ? null
-            : _displayName.text.trim(),
-        avatarUrl: _avatarUrl.text.trim() == (existing.avatarUrl ?? '')
-            ? null
-            : _avatarUrl.text.trim(),
-        bio: _bio.text.trim() == (existing.bio ?? '') ? null : _bio.text.trim(),
-        timezone: _timezone.text.trim() == existing.timezone
-            ? null
-            : _timezone.text.trim(),
-        statusText: _status.text.trim() == (existing.statusText ?? '')
-            ? null
-            : _status.text.trim(),
-      );
+      final profile = await widget.transport.updateProfile(changes);
       if (!mounted) return;
       _applyProfile(profile);
       setState(() => _profile = profile);
@@ -155,8 +168,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final avatarText = profile.displayName.trim().isNotEmpty
         ? profile.displayName.trim().characters.first.toUpperCase()
         : profile.username.trim().isNotEmpty
-            ? profile.username.trim().characters.first.toUpperCase()
-            : '?';
+        ? profile.username.trim().characters.first.toUpperCase()
+        : '?';
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -164,6 +177,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 18, 16, 110),
         children: [
+          const Text(
+            'Profile',
+            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 18),
           Row(
             children: [
               CircleAvatar(
@@ -287,6 +305,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     labelText: 'Avatar URL',
                     prefixIcon: Icon(Icons.image_outlined),
                   ),
+                  validator: (value) {
+                    final raw = value?.trim() ?? '';
+                    if (raw.isEmpty) return null;
+                    final uri = Uri.tryParse(raw);
+                    if (uri == null ||
+                        !uri.hasScheme ||
+                        (uri.scheme != 'http' && uri.scheme != 'https')) {
+                      return 'Enter a valid http(s) URL';
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 18),
                 SizedBox(
