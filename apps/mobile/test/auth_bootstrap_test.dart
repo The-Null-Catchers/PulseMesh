@@ -107,4 +107,38 @@ void main() {
     expect(find.byKey(const Key('auth-display-name')), findsOneWidget);
     expect(find.byKey(const Key('auth-username')), findsOneWidget);
   });
+
+  testWidgets('returns to sign in when the active session logs out', (tester) async {
+    final store = MemorySessionStore()..refreshToken = 'saved-refresh-token';
+    final controller = AuthSessionController(
+      transport: WidgetAuthTransport(),
+      store: store,
+    );
+
+    await tester.pumpWidget(
+      MobileAuthBootstrap(
+        controller: controller,
+        authenticatedAppBuilder: (_) => MaterialApp(
+          home: Scaffold(
+            body: FilledButton(
+              key: const Key('test-sign-out'),
+              onPressed: () => controller.logout(),
+              child: const Text('Sign out now'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sign out now'), findsOneWidget);
+    expect(await controller.accessToken(), 'access-restored');
+
+    await tester.tap(find.byKey(const Key('test-sign-out')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(await controller.accessToken(), isNull);
+    expect(store.refreshToken, isNull);
+  });
 }
