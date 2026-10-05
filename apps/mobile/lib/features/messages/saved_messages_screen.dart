@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../search/search_screen.dart';
+import '../search/search_transport.dart';
 import 'message_actions_transport.dart';
 import 'room_screen.dart';
 import 'saved_message.dart';
@@ -168,6 +170,26 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
     }
   }
 
+  Future<void> _openGlobalSearch() async {
+    final actions = SavedMessagesTransportScope.of(context);
+    if (actions is! DioMessageActionsTransport) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Global search is unavailable.')),
+      );
+      return;
+    }
+
+    final transport = DioSearchTransport(
+      baseUrl: actions.baseUrl,
+      accessToken: actions.accessTokenProvider,
+    );
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SearchScreen(transport: transport),
+      ),
+    );
+  }
+
   List<SavedMessage> get _filteredItems {
     final query = _query.trim().toLowerCase();
     if (query.isEmpty) return _items;
@@ -190,6 +212,14 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
           'Saved Messages',
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Search PulseMesh',
+            onPressed: () => unawaited(_openGlobalSearch()),
+            icon: const Icon(Icons.manage_search_rounded),
+          ),
+          const SizedBox(width: 4),
+        ],
       ),
       body: RefreshIndicator(onRefresh: _load, child: _body()),
     );
