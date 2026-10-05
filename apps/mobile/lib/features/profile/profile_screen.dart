@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../auth/auth_session_controller.dart';
+import 'notification_preferences_card.dart';
 import 'profile_model.dart';
 import 'profile_session.dart';
 import 'profile_transport.dart';
@@ -268,7 +269,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await controller.logout();
     } catch (_) {
       // logout() always clears the local refresh/access tokens in finally.
-      // The auth bootstrap observes the controller and returns to sign-in.
     } finally {
       if (mounted) setState(() => _signingOut = false);
     }
@@ -458,6 +458,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           const SizedBox(height: 30),
+          NotificationPreferencesCard(
+            transport: widget.transport,
+            defaultTimezone: profile.timezone,
+          ),
+          const SizedBox(height: 20),
           _buildSessionsSection(),
         ],
       ),
