@@ -24,6 +24,7 @@ import { channelManagementRoutes } from "./channels/management.js";
 import { conversationManagementRoutes } from "./conversations/management.js";
 import { healthRoutes } from "./health/routes.js";
 import { presenceRoutes } from "./presence/routes.js";
+import { profileRoutes } from "./profile/routes.js";
 import { callRoutes } from "./calls/routes.js";
 import { callInviteRoutes } from "./calls/invite-routes.js";
 import { callHistoryRoutes } from "./calls/history-routes.js";
@@ -109,6 +110,7 @@ export async function buildApp() {
   await channelManagementRoutes(app);
   await conversationManagementRoutes(app);
   await presenceRoutes(app);
+  await profileRoutes(app);
   await callRoutes(app);
   await callInviteRoutes(app);
   await callHistoryRoutes(app);
