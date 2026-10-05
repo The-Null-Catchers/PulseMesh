@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'profile_model.dart';
+import 'profile_session.dart';
 import 'profile_transport.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -24,9 +25,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _avatarUrl = TextEditingController();
 
   UserProfile? _profile;
+  List<ProfileSession> _sessions = const [];
   Object? _error;
+  Object? _sessionError;
   bool _loading = true;
+  bool _loadingSessions = true;
   bool _saving = false;
+  final Set<String> _revokingSessions = <String>{};
+  bool _revokingOthers = false;
 
   @override
   void initState() {
@@ -48,9 +54,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _load() async {
     setState(() {
       _loading = true;
+      _loadingSessions = true;
       _error = null;
+      _sessionError = null;
     });
 
+    await Future.wait([_loadProfile(), _loadSessions()]);
+  }
+
+  Future<void> _loadProfile() async {
     try {
       final profile = await widget.transport.fetchProfile();
       if (!mounted) return;
@@ -64,6 +76,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _error = error;
         _loading = false;
+      });
+    }
+  }
+
+  Future<void> _loadSessions() async {
+    try {
+      final sessions = await widget.transport.fetchSessions();
+      if (!mounted) return;
+      setState(() {
+        _sessions = sessions;
+        _loadingSessions = false;
+        _sessionError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _sessionError = error;
+        _loadingSessions = false;
       });
     }
   }
@@ -130,6 +160,80 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  Future<void> _revokeSession(ProfileSession session) async {
+    if (session.current || _revokingSessions.contains(session.id)) return;
+    setState(() => _revokingSessions.add(session.id));
+    try {
+      await widget.transport.revokeSession(session.id);
+      if (!mounted) return;
+      setState(() {
+        _sessions = _sessions
+            .where((item) => item.id != session.id)
+            .toList(growable: false);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${session.title} signed out.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not revoke session: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _revokingSessions.remove(session.id));
+    }
+  }
+
+  Future<void> _revokeAllOtherSessions() async {
+    if (_revokingOthers) return;
+    final others = _sessions.where((session) => !session.current).toList();
+    if (others.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign out other devices?'),
+        content: Text(
+          'This will revoke ${others.length} active ${others.length == 1 ? 'session' : 'sessions'} while keeping this device signed in.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sign out others'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _revokingOthers = true);
+    var failed = 0;
+    for (final session in others) {
+      try {
+        await widget.transport.revokeSession(session.id);
+      } catch (_) {
+        failed += 1;
+      }
+    }
+    if (!mounted) return;
+    await _loadSessions();
+    if (!mounted) return;
+    setState(() => _revokingOthers = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          failed == 0
+              ? 'Other devices were signed out.'
+              : 'Signed out ${others.length - failed} devices; $failed could not be revoked.',
+        ),
+      ),
+    );
   }
 
   @override
@@ -334,8 +438,193 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 30),
+          _buildSessionsSection(),
         ],
       ),
     );
   }
+
+  Widget _buildSessionsSection() {
+    final otherSessionCount = _sessions.where((session) => !session.current).length;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B171C),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF24404A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.security_rounded, color: Color(0xFF68E0CF)),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Security & sessions',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh sessions',
+                onPressed: _loadingSessions ? null : () => unawaited(_loadSessions()),
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Review devices that are signed in to your PulseMesh account.',
+            style: TextStyle(color: Colors.white60, height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          if (_loadingSessions)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (_sessionError != null)
+            Column(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent),
+                const SizedBox(height: 8),
+                Text(
+                  'Could not load active sessions: $_sessionError',
+                  style: const TextStyle(color: Colors.white60),
+                ),
+              ],
+            )
+          else if (_sessions.isEmpty)
+            const Text(
+              'No active sessions were returned.',
+              style: TextStyle(color: Colors.white54),
+            )
+          else ...[
+            for (final session in _sessions) _SessionTile(
+              session: session,
+              revoking: _revokingSessions.contains(session.id),
+              onRevoke: session.current
+                  ? null
+                  : () => unawaited(_revokeSession(session)),
+            ),
+            if (otherSessionCount > 0) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _revokingOthers
+                      ? null
+                      : () => unawaited(_revokeAllOtherSessions()),
+                  icon: _revokingOthers
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.logout_rounded),
+                  label: Text(
+                    _revokingOthers
+                        ? 'Signing out other devices…'
+                        : 'Sign out all other devices',
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SessionTile extends StatelessWidget {
+  const _SessionTile({
+    required this.session,
+    required this.revoking,
+    required this.onRevoke,
+  });
+
+  final ProfileSession session;
+  final bool revoking;
+  final VoidCallback? onRevoke;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: session.current
+            ? const Color(0xFF173A3A)
+            : const Color(0xFF14252C),
+        child: Icon(
+          session.current ? Icons.smartphone_rounded : Icons.devices_rounded,
+          color: session.current ? const Color(0xFF68E0CF) : Colors.white70,
+        ),
+      ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              session.title,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          if (session.current)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0x2268E0CF),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: const Text(
+                'This device',
+                style: TextStyle(
+                  color: Color(0xFF9AF5E8),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+        ],
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(
+          '${session.subtitle}\nLast active ${_formatSessionTime(session.lastActiveAt)}',
+          style: const TextStyle(color: Colors.white54, height: 1.35),
+        ),
+      ),
+      isThreeLine: true,
+      trailing: session.current
+          ? null
+          : IconButton(
+              tooltip: 'Sign out device',
+              onPressed: revoking ? null : onRevoke,
+              icon: revoking
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.logout_rounded),
+            ),
+    );
+  }
+}
+
+String _formatSessionTime(DateTime value) {
+  final local = value.toLocal();
+  final now = DateTime.now();
+  final difference = now.difference(local);
+  if (difference.inMinutes < 1) return 'just now';
+  if (difference.inMinutes < 60) return '${difference.inMinutes}m ago';
+  if (difference.inHours < 24) return '${difference.inHours}h ago';
+  if (difference.inDays < 7) return '${difference.inDays}d ago';
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '${local.year}-$month-$day';
 }
