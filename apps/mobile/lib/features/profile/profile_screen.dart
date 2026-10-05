@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../auth/auth_session_controller.dart';
 import 'profile_model.dart';
 import 'profile_session.dart';
 import 'profile_transport.dart';
@@ -31,8 +32,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _loading = true;
   bool _loadingSessions = true;
   bool _saving = false;
-  final Set<String> _revokingSessions = <String>{};
   bool _revokingOthers = false;
+  bool _signingOut = false;
+  final Set<String> _revokingSessions = <String>{};
 
   @override
   void initState() {
@@ -58,7 +60,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _error = null;
       _sessionError = null;
     });
-
     await Future.wait([_loadProfile(), _loadSessions()]);
   }
 
@@ -109,7 +110,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _save() async {
     if (_saving || !(_formKey.currentState?.validate() ?? false)) return;
-
     final existing = _profile;
     if (existing == null) return;
 
@@ -122,12 +122,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final changes = <String, dynamic>{};
 
     if (username != existing.username) changes['username'] = username;
-    if (displayName != existing.displayName) {
-      changes['displayName'] = displayName;
-    }
-    if (bio != (existing.bio ?? '')) {
-      changes['bio'] = bio.isEmpty ? null : bio;
-    }
+    if (displayName != existing.displayName) changes['displayName'] = displayName;
+    if (bio != (existing.bio ?? '')) changes['bio'] = bio.isEmpty ? null : bio;
     if (status != (existing.statusText ?? '')) {
       changes['statusText'] = status.isEmpty ? null : status;
     }
@@ -236,6 +232,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Future<void> _signOutCurrentDevice() async {
+    if (_signingOut) return;
+    final controller = AuthSessionController.active;
+    if (controller == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign out is unavailable right now.')),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign out of this device?'),
+        content: const Text(
+          'Your local session will be cleared and you will return to the sign-in screen.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _signingOut = true);
+    try {
+      await controller.logout();
+    } catch (_) {
+      // logout() always clears the local refresh/access tokens in finally.
+      // The auth bootstrap observes the controller and returns to sign-in.
+    } finally {
+      if (mounted) setState(() => _signingOut = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading && _profile == null) {
@@ -272,8 +310,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final avatarText = profile.displayName.trim().isNotEmpty
         ? profile.displayName.trim().characters.first.toUpperCase()
         : profile.username.trim().isNotEmpty
-        ? profile.username.trim().characters.first.toUpperCase()
-        : '?';
+            ? profile.username.trim().characters.first.toUpperCase()
+            : '?';
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -332,83 +370,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
             key: _formKey,
             child: Column(
               children: [
-                TextFormField(
+                _field(
                   controller: _displayName,
-                  textInputAction: TextInputAction.next,
+                  label: 'Display name',
+                  icon: Icons.badge_outlined,
                   maxLength: 80,
-                  decoration: const InputDecoration(
-                    labelText: 'Display name',
-                    prefixIcon: Icon(Icons.badge_outlined),
-                  ),
                   validator: (value) => value == null || value.trim().isEmpty
                       ? 'Display name is required'
                       : null,
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
+                _field(
                   controller: _username,
-                  textInputAction: TextInputAction.next,
+                  label: 'Username',
+                  icon: Icons.alternate_email_rounded,
                   maxLength: 32,
-                  decoration: const InputDecoration(
-                    labelText: 'Username',
-                    prefixIcon: Icon(Icons.alternate_email_rounded),
-                  ),
                   validator: (value) {
                     final username = value?.trim() ?? '';
-                    if (username.length < 3) {
-                      return 'Use at least 3 characters';
-                    }
+                    if (username.length < 3) return 'Use at least 3 characters';
                     if (!RegExp(r'^[a-zA-Z0-9._-]+$').hasMatch(username)) {
                       return 'Use letters, numbers, dots, dashes, or underscores';
                     }
                     return null;
                   },
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
+                _field(
                   controller: _status,
-                  textInputAction: TextInputAction.next,
+                  label: 'Status',
+                  hint: 'What are you working on?',
+                  icon: Icons.bubble_chart_outlined,
                   maxLength: 120,
-                  decoration: const InputDecoration(
-                    labelText: 'Status',
-                    hintText: 'What are you working on?',
-                    prefixIcon: Icon(Icons.bubble_chart_outlined),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: TextFormField(
+                    controller: _bio,
+                    minLines: 3,
+                    maxLines: 5,
+                    maxLength: 500,
+                    decoration: const InputDecoration(
+                      labelText: 'Bio',
+                      alignLabelWithHint: true,
+                      prefixIcon: Icon(Icons.notes_rounded),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _bio,
-                  minLines: 3,
-                  maxLines: 5,
-                  maxLength: 500,
-                  decoration: const InputDecoration(
-                    labelText: 'Bio',
-                    alignLabelWithHint: true,
-                    prefixIcon: Icon(Icons.notes_rounded),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
+                _field(
                   controller: _timezone,
-                  textInputAction: TextInputAction.next,
+                  label: 'Timezone',
+                  icon: Icons.public_rounded,
                   maxLength: 80,
-                  decoration: const InputDecoration(
-                    labelText: 'Timezone',
-                    prefixIcon: Icon(Icons.public_rounded),
-                  ),
                   validator: (value) => value == null || value.trim().isEmpty
                       ? 'Timezone is required'
                       : null,
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
+                _field(
                   controller: _avatarUrl,
-                  keyboardType: TextInputType.url,
+                  label: 'Avatar URL',
+                  icon: Icons.image_outlined,
                   maxLength: 2048,
-                  decoration: const InputDecoration(
-                    labelText: 'Avatar URL',
-                    prefixIcon: Icon(Icons.image_outlined),
-                  ),
+                  keyboardType: TextInputType.url,
                   validator: (value) {
                     final raw = value?.trim() ?? '';
                     if (raw.isEmpty) return null;
@@ -421,7 +441,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 18),
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
@@ -441,6 +460,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 30),
           _buildSessionsSection(),
         ],
+      ),
+    );
+  }
+
+  Widget _field({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    int? maxLength,
+    String? hint,
+    TextInputType? keyboardType,
+    String? Function(String?)? validator,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: controller,
+        textInputAction: TextInputAction.next,
+        maxLength: maxLength,
+        keyboardType: keyboardType,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          prefixIcon: Icon(icon),
+        ),
+        validator: validator,
       ),
     );
   }
@@ -505,13 +550,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               style: TextStyle(color: Colors.white54),
             )
           else ...[
-            for (final session in _sessions) _SessionTile(
-              session: session,
-              revoking: _revokingSessions.contains(session.id),
-              onRevoke: session.current
-                  ? null
-                  : () => unawaited(_revokeSession(session)),
-            ),
+            for (final session in _sessions)
+              _SessionTile(
+                session: session,
+                revoking: _revokingSessions.contains(session.id),
+                onRevoke: session.current
+                    ? null
+                    : () => unawaited(_revokeSession(session)),
+              ),
             if (otherSessionCount > 0) ...[
               const SizedBox(height: 12),
               SizedBox(
@@ -535,6 +581,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ],
           ],
+          const SizedBox(height: 18),
+          const Divider(),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: const Key('profile-sign-out-current'),
+              onPressed: _signingOut
+                  ? null
+                  : () => unawaited(_signOutCurrentDevice()),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.errorContainer,
+                foregroundColor: Theme.of(context).colorScheme.onErrorContainer,
+              ),
+              icon: _signingOut
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.logout_rounded),
+              label: Text(_signingOut ? 'Signing out…' : 'Sign out of this device'),
+            ),
+          ),
         ],
       ),
     );
