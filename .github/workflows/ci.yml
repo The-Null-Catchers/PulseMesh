@@ -24,7 +24,10 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --frozen-lockfile
-      - run: pnpm format:check
+      - run: |
+          pnpm exec prettier apps/web/app/saved/saved-messages-client.tsx --write
+          git diff -- apps/web/app/saved/saved-messages-client.tsx
+          exit 1
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
