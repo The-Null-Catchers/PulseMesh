@@ -22,6 +22,10 @@ import 'features/messages/room_screen.dart';
 import 'features/messages/saved_messages_screen.dart';
 import 'features/notifications/call_notification_action.dart';
 import 'features/notifications/mobile_push_service.dart';
+import 'features/profile/profile_screen.dart';
+import 'features/profile/profile_transport.dart';
+import 'features/search/search_screen.dart';
+import 'features/search/search_transport.dart';
 import 'offline/models.dart';
 import 'theme/app_theme.dart';
 
@@ -110,11 +114,37 @@ final router = GoRouter(
         ),
         GoRoute(
           path: '/profile',
-          builder: (_, _) => const PlaceholderScreen(title: 'Profile'),
+          builder: (context, _) {
+            final actions = SavedMessagesTransportScope.of(context);
+            if (actions is! DioMessageActionsTransport) {
+              return const PlaceholderScreen(title: 'Profile unavailable');
+            }
+            return ProfileScreen(
+              transport: DioProfileTransport(
+                baseUrl: actions.baseUrl,
+                accessToken: actions.accessTokenProvider,
+              ),
+            );
+          },
         ),
       ],
     ),
     GoRoute(path: '/saved', builder: (_, _) => const SavedMessagesScreen()),
+    GoRoute(
+      path: '/search',
+      builder: (context, _) {
+        final actions = SavedMessagesTransportScope.of(context);
+        if (actions is! DioMessageActionsTransport) {
+          return const PlaceholderScreen(title: 'Search unavailable');
+        }
+        return SearchScreen(
+          transport: DioSearchTransport(
+            baseUrl: actions.baseUrl,
+            accessToken: actions.accessTokenProvider,
+          ),
+        );
+      },
+    ),
     GoRoute(
       path: '/voice/:id',
       builder: (context, state) {
@@ -962,6 +992,11 @@ class MessagesScreen extends StatelessWidget {
               style: TextStyle(fontWeight: FontWeight.w800),
             ),
             actions: [
+              IconButton(
+                tooltip: 'Search PulseMesh',
+                onPressed: () => context.push('/search'),
+                icon: const Icon(Icons.search_rounded),
+              ),
               IconButton(
                 tooltip: 'Saved messages',
                 onPressed: () => context.push('/saved'),
