@@ -7,14 +7,7 @@ typedef ProfileAccessTokenProvider = Future<String?> Function();
 abstract interface class ProfileTransport {
   Future<UserProfile> fetchProfile();
 
-  Future<UserProfile> updateProfile({
-    String? username,
-    String? displayName,
-    String? avatarUrl,
-    String? bio,
-    String? timezone,
-    String? statusText,
-  });
+  Future<UserProfile> updateProfile(Map<String, dynamic> changes);
 }
 
 class DioProfileTransport implements ProfileTransport {
@@ -47,24 +40,10 @@ class DioProfileTransport implements ProfileTransport {
   }
 
   @override
-  Future<UserProfile> updateProfile({
-    String? username,
-    String? displayName,
-    String? avatarUrl,
-    String? bio,
-    String? timezone,
-    String? statusText,
-  }) async {
+  Future<UserProfile> updateProfile(Map<String, dynamic> changes) async {
     final response = await _dio.patch<Map<String, dynamic>>(
       '/profile',
-      data: <String, dynamic>{
-        if (username != null) 'username': username,
-        if (displayName != null) 'displayName': displayName,
-        if (avatarUrl != null) 'avatarUrl': avatarUrl,
-        if (bio != null) 'bio': bio,
-        if (timezone != null) 'timezone': timezone,
-        if (statusText != null) 'statusText': statusText,
-      },
+      data: changes,
       options: await _options(),
     );
     return UserProfile.fromJson(response.data ?? const {});
