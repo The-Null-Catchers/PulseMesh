@@ -73,7 +73,9 @@ export async function updateUserProfile(
   if (input.displayName !== undefined) {
     entries.push(["display_name", input.displayName]);
   }
-  if (input.avatarUrl !== undefined) entries.push(["avatar_url", input.avatarUrl]);
+  if (input.avatarUrl !== undefined) {
+    entries.push(["avatar_url", input.avatarUrl]);
+  }
   if (input.bio !== undefined) entries.push(["bio", input.bio]);
   if (input.timezone !== undefined) entries.push(["timezone", input.timezone]);
   if (input.statusText !== undefined) {
