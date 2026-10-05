@@ -1,11 +1,14 @@
 import 'package:dio/dio.dart';
 
 import 'workspace_models.dart';
+import 'workspace_presence.dart';
 
 typedef WorkspaceAccessTokenProvider = Future<String?> Function();
 
 abstract interface class WorkspaceTransport {
   Future<List<WorkspaceSummary>> listWorkspaces();
+
+  Future<List<WorkspacePresenceMember>> listPresence(String workspaceId);
 }
 
 class DioWorkspaceTransport implements WorkspaceTransport {
@@ -47,6 +50,22 @@ class DioWorkspaceTransport implements WorkspaceTransport {
     return items
         .map(
           (item) => WorkspaceSummary.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<WorkspacePresenceMember>> listPresence(String workspaceId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/workspaces/$workspaceId/presence',
+      options: await _options(),
+    );
+    final items = response.data?['items'] as List<dynamic>? ?? const [];
+    return items
+        .map(
+          (item) => WorkspacePresenceMember.fromJson(
             Map<String, dynamic>.from(item as Map),
           ),
         )
