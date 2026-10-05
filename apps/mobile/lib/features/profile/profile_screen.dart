@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../auth/auth_session_controller.dart';
 import 'notification_preferences_card.dart';
+import 'presence_settings_card.dart';
 import 'profile_model.dart';
 import 'profile_session.dart';
 import 'profile_transport.dart';
@@ -458,6 +459,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           const SizedBox(height: 30),
+          PresenceSettingsCard(transport: widget.transport),
+          const SizedBox(height: 20),
           NotificationPreferencesCard(
             transport: widget.transport,
             defaultTimezone: profile.timezone,
