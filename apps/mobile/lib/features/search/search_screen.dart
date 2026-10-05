@@ -3,34 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../inbox/mobile_data_controller.dart';
 import '../inbox/mobile_data_scope.dart';
 import '../messages/room_screen.dart';
 import 'search_models.dart';
 import 'search_transport.dart';
 
-class SearchTransportScope extends InheritedWidget {
-  const SearchTransportScope({
-    required this.transport,
-    required super.child,
-    super.key,
-  });
+class SearchScreen extends StatefulWidget {
+  const SearchScreen({required this.transport, super.key});
 
   final SearchTransport transport;
-
-  static SearchTransport of(BuildContext context) {
-    final scope = context.dependOnInheritedWidgetOfExactType<SearchTransportScope>();
-    assert(scope != null, 'SearchTransportScope is missing');
-    return scope!.transport;
-  }
-
-  @override
-  bool updateShouldNotify(SearchTransportScope oldWidget) {
-    return !identical(oldWidget.transport, transport);
-  }
-}
-
-class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -76,7 +58,7 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      final results = await SearchTransportScope.of(context).search(query);
+      final results = await widget.transport.search(query);
       if (!mounted || serial != _requestSerial) return;
       setState(() {
         _results = results;
@@ -333,7 +315,7 @@ class _SectionHeader extends StatelessWidget {
 }
 
 ({String label, String title, String? path}) _messageDestination(
-  dynamic data,
+  MobileDataController data,
   SearchMessageResult message,
 ) {
   if (message.channelId != null) {
