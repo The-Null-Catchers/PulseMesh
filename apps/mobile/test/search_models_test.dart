@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulsemesh_mobile/features/search/search_models.dart';
+import 'package:pulsemesh/features/search/search_models.dart';
 
 void main() {
   test('parses global search results', () {
