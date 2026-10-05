@@ -47,7 +47,8 @@ class SavedMessageContent {
       channelId: json['channelId'] as String?,
       conversationId: json['conversationId'] as String?,
       body: json['body'] as String? ?? '',
-      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+      createdAt:
+          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
       editedAt: DateTime.tryParse(json['editedAt'] as String? ?? ''),
       sender: SavedMessageSender.fromJson(
@@ -79,9 +80,11 @@ class SavedMessage {
     return SavedMessage(
       messageId: json['messageId'] as String? ?? '',
       note: json['note'] as String?,
-      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+      createdAt:
+          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-      updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ??
+      updatedAt:
+          DateTime.tryParse(json['updatedAt'] as String? ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
       message: SavedMessageContent.fromJson(
         messageValue is Map

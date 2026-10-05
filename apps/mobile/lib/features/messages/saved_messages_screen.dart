@@ -7,8 +7,7 @@ import 'message_actions_transport.dart';
 import 'room_screen.dart';
 import 'saved_message.dart';
 
-class SavedMessagesTransportScope
-    extends InheritedWidget {
+class SavedMessagesTransportScope extends InheritedWidget {
   const SavedMessagesTransportScope({
     required this.transport,
     required super.child,
@@ -121,9 +120,8 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
 
   Future<void> _remove(SavedMessage item) async {
     try {
-      await SavedMessagesTransportScope.of(context).removeBookmark(
-        messageId: item.messageId,
-      );
+      await SavedMessagesTransportScope.of(context)
+          .removeBookmark(messageId: item.messageId);
       if (!mounted) return;
       setState(() {
         _items = _items
@@ -170,10 +168,7 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _body(),
-      ),
+      body: RefreshIndicator(onRefresh: _load, child: _body()),
     );
   }
 
@@ -188,11 +183,7 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
         padding: const EdgeInsets.all(24),
         children: [
           const SizedBox(height: 120),
-          const Icon(
-            Icons.cloud_off_rounded,
-            size: 40,
-            color: Colors.white38,
-          ),
+          const Icon(Icons.cloud_off_rounded, size: 40, color: Colors.white38),
           const SizedBox(height: 16),
           const Text(
             'Could not load saved messages',
