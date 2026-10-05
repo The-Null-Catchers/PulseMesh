@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import 'notification_preference.dart';
 import 'profile_model.dart';
 import 'profile_session.dart';
 
@@ -15,6 +16,12 @@ abstract interface class ProfileTransport {
   Future<List<ProfileSession>> fetchSessions();
 
   Future<void> revokeSession(String sessionId);
+
+  Future<NotificationPreference> fetchGlobalNotificationPreference();
+
+  Future<void> updateGlobalNotificationPreference(
+    NotificationPreference preference,
+  );
 }
 
 class DioProfileTransport implements ProfileTransport {
@@ -81,6 +88,41 @@ class DioProfileTransport implements ProfileTransport {
   Future<void> revokeSession(String sessionId) async {
     await _dio.delete<void>(
       '/auth/sessions/$sessionId',
+      options: await _options(),
+    );
+  }
+
+  @override
+  Future<NotificationPreference> fetchGlobalNotificationPreference() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/notification-preferences',
+      options: await _options(),
+    );
+    final items = response.data?['items'];
+    if (items is! List) return NotificationPreference.defaults;
+
+    for (final item in items.whereType<Map>()) {
+      final json = Map<String, dynamic>.from(item);
+      final workspaceId = json['workspace_id'] ?? json['workspaceId'];
+      final channelId = json['channel_id'] ?? json['channelId'];
+      final conversationId = json['conversation_id'] ?? json['conversationId'];
+      if (workspaceId == null && channelId == null && conversationId == null) {
+        return NotificationPreference.fromJson(json);
+      }
+    }
+    return NotificationPreference.defaults;
+  }
+
+  @override
+  Future<void> updateGlobalNotificationPreference(
+    NotificationPreference preference,
+  ) async {
+    await _dio.put<void>(
+      '/notification-preferences',
+      data: <String, dynamic>{
+        'level': preference.level,
+        'quietHours': preference.quietHours?.toJson(),
+      },
       options: await _options(),
     );
   }
