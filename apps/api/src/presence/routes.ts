@@ -4,11 +4,18 @@ import { isWorkspaceMember } from "../authorization/service.js";
 import { AppError } from "../errors.js";
 import {
   broadcastPresence,
+  currentPresence,
   listWorkspacePresence,
   updatePresenceSettings,
 } from "./service.js";
 
 export async function presenceRoutes(app: FastifyInstance): Promise<void> {
+  app.get("/presence", { preHandler: app.authenticate }, async (request) => {
+    const userId = request.auth?.userId;
+    if (!userId) throw new Error("Missing user");
+    return currentPresence(userId);
+  });
+
   app.get(
     "/workspaces/:workspaceId/presence",
     { preHandler: app.authenticate },
