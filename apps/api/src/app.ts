@@ -13,6 +13,7 @@ import { channelRoutes } from "./channels/routes.js";
 import { messageRoutes } from "./messages/routes.js";
 import { messageMutationRoutes } from "./messages/mutations.js";
 import { messageSyncRoutes } from "./messages/sync-routes.js";
+import { bookmarkRoutes } from "./bookmarks/routes.js";
 import { conversationRoutes } from "./conversations/routes.js";
 import { readStateRoutes } from "./read-states/routes.js";
 import { searchRoutes } from "./search/routes.js";
@@ -98,6 +99,7 @@ export async function buildApp() {
   await messageRoutes(app);
   await messageMutationRoutes(app);
   await messageSyncRoutes(app);
+  await bookmarkRoutes(app);
   await conversationRoutes(app);
   await readStateRoutes(app);
   await searchRoutes(app);
