@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulsemesh_mobile/features/messages/saved_message.dart';
+import 'package:pulsemesh/features/messages/saved_message.dart';
 
 void main() {
   test('parses a saved message with a private note', () {
