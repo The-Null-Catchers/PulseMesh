@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 
+import 'saved_message.dart';
+
 typedef MessageActionAccessTokenProvider = Future<String?> Function();
 
 abstract interface class MessageActionsTransport {
@@ -23,6 +25,10 @@ abstract interface class MessageActionsTransport {
     required String messageId,
     String? note,
   });
+
+  Future<List<SavedMessage>> savedMessages({int limit = 100});
+
+  Future<void> removeBookmark({required String messageId});
 
   Future<void> pinMessage({
     required String messageId,
@@ -108,6 +114,31 @@ class DioMessageActionsTransport implements MessageActionsTransport {
   }
 
   @override
+  Future<List<SavedMessage>> savedMessages({int limit = 100}) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/bookmarks',
+      queryParameters: {'limit': limit},
+      options: await _options(),
+    );
+    final items = response.data?['items'] as List<dynamic>? ?? const [];
+    return items
+        .map(
+          (item) => SavedMessage.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> removeBookmark({required String messageId}) async {
+    await _dio.delete<void>(
+      '/messages/$messageId/bookmark',
+      options: await _options(),
+    );
+  }
+
+  @override
   Future<void> pinMessage({
     required String messageId,
     required bool active,
@@ -177,4 +208,3 @@ class DioMessageActionsTransport implements MessageActionsTransport {
     }
   }
 }
-
