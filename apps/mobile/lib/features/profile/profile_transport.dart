@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import 'notification_preference.dart';
+import 'presence_snapshot.dart';
 import 'profile_model.dart';
 import 'profile_session.dart';
 
@@ -22,6 +23,13 @@ abstract interface class ProfileTransport {
   Future<void> updateGlobalNotificationPreference(
     NotificationPreference preference,
   );
+
+  Future<PresenceSnapshot> fetchPresence();
+
+  Future<PresenceSnapshot> updatePresence({
+    required String status,
+    required String? customText,
+  });
 }
 
 class DioProfileTransport implements ProfileTransport {
@@ -125,6 +133,31 @@ class DioProfileTransport implements ProfileTransport {
       },
       options: await _options(),
     );
+  }
+
+  @override
+  Future<PresenceSnapshot> fetchPresence() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/presence',
+      options: await _options(),
+    );
+    return PresenceSnapshot.fromJson(response.data ?? const {});
+  }
+
+  @override
+  Future<PresenceSnapshot> updatePresence({
+    required String status,
+    required String? customText,
+  }) async {
+    final response = await _dio.put<Map<String, dynamic>>(
+      '/presence',
+      data: <String, dynamic>{
+        'status': status,
+        'customText': customText,
+      },
+      options: await _options(),
+    );
+    return PresenceSnapshot.fromJson(response.data ?? const {});
   }
 
   Future<Options> _options() async => _optionsForToken(await _accessToken());
