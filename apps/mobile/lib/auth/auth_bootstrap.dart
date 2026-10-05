@@ -42,7 +42,24 @@ class _MobileAuthBootstrapState extends State<MobileAuthBootstrap> {
           transport: DioAuthTransport(baseUrl: widget.config.apiBaseUrl),
           store: SecureAuthSessionStore(),
         );
+    _controller.addListener(_handleSessionChanged);
     _restore();
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_handleSessionChanged);
+    super.dispose();
+  }
+
+  void _handleSessionChanged() {
+    if (!mounted || _restoring) return;
+    final authenticated = _controller.isAuthenticated;
+    if (authenticated == _authenticated) return;
+    setState(() {
+      _authenticated = authenticated;
+      _restoreError = null;
+    });
   }
 
   Future<void> _restore() async {
