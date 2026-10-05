@@ -17,7 +17,9 @@ import 'features/inbox/inbox_models.dart';
 import 'features/inbox/inbox_realtime.dart';
 import 'features/inbox/mobile_data_controller.dart';
 import 'features/inbox/mobile_data_scope.dart';
+import 'features/messages/message_actions_transport.dart';
 import 'features/messages/room_screen.dart';
+import 'features/messages/saved_messages_screen.dart';
 import 'features/notifications/call_notification_action.dart';
 import 'features/notifications/mobile_push_service.dart';
 import 'offline/models.dart';
@@ -56,6 +58,7 @@ class _PulseMeshAuthenticatedRootState
     extends State<PulseMeshAuthenticatedRoot> {
   late final MobileDataController _controller;
   late final CallTransport _callTransport;
+  late final MessageActionsTransport _messageActionsTransport;
 
   @override
   void initState() {
@@ -65,6 +68,10 @@ class _PulseMeshAuthenticatedRootState
       config: widget.config,
     );
     _callTransport = DioCallTransport(
+      baseUrl: widget.config.apiBaseUrl,
+      accessToken: widget.authSession.accessToken,
+    );
+    _messageActionsTransport = DioMessageActionsTransport(
       baseUrl: widget.config.apiBaseUrl,
       accessToken: widget.authSession.accessToken,
     );
@@ -79,9 +86,12 @@ class _PulseMeshAuthenticatedRootState
 
   @override
   Widget build(BuildContext context) {
-    return MobileDataScope(
-      controller: _controller,
-      child: PulseMeshApp(callTransport: _callTransport),
+    return SavedMessagesTransportScope(
+      transport: _messageActionsTransport,
+      child: MobileDataScope(
+        controller: _controller,
+        child: PulseMeshApp(callTransport: _callTransport),
+      ),
     );
   }
 }
@@ -104,6 +114,7 @@ final router = GoRouter(
         ),
       ],
     ),
+    GoRoute(path: '/saved', builder: (_, _) => const SavedMessagesScreen()),
     GoRoute(
       path: '/voice/:id',
       builder: (context, state) {
@@ -149,8 +160,9 @@ final router = GoRouter(
       builder: (context, state) {
         final kind = state.pathParameters['kind'];
         final id = state.pathParameters['id']!;
-        final roomKind =
-            kind == 'channel' ? RoomKind.channel : RoomKind.conversation;
+        final roomKind = kind == 'channel'
+            ? RoomKind.channel
+            : RoomKind.conversation;
         final args = state.extra is RoomScreenArgs
             ? state.extra! as RoomScreenArgs
             : const RoomScreenArgs(title: 'Conversation');
@@ -363,7 +375,9 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
       }
 
       final transport = widget.callTransport;
-      final invite = transport == null ? null : await transport.callInvite(callId);
+      final invite = transport == null
+          ? null
+          : await transport.callInvite(callId);
       if (invite != null && !invite.pending) return;
 
       final expiresAt =
@@ -452,8 +466,9 @@ class _IncomingCallHostState extends State<_IncomingCallHost>
     try {
       final call = await widget.data.refreshCall(pending.callId);
       final transport = widget.callTransport;
-      final invite =
-          transport == null ? null : await transport.callInvite(pending.callId);
+      final invite = transport == null
+          ? null
+          : await transport.callInvite(pending.callId);
       if (!mounted) return;
 
       if (call.status != 'active' || (invite != null && !invite.pending)) {
@@ -655,9 +670,7 @@ class _IncomingCallCard extends StatelessWidget {
                 backgroundColor: const Color(0xFF68E0CF),
                 foregroundColor: Colors.black,
               ),
-              icon: Icon(
-                video ? Icons.videocam_rounded : Icons.call_rounded,
-              ),
+              icon: Icon(video ? Icons.videocam_rounded : Icons.call_rounded),
             ),
           ],
         ),
@@ -744,9 +757,7 @@ class AppShell extends StatelessWidget {
             label: 'Messages',
           ),
           const NavigationDestination(
-            icon: CallActivityBadgeIcon(
-              icon: Icons.notifications_none_rounded,
-            ),
+            icon: CallActivityBadgeIcon(icon: Icons.notifications_none_rounded),
             selectedIcon: CallActivityBadgeIcon(
               icon: Icons.notifications_rounded,
             ),
@@ -763,10 +774,7 @@ class AppShell extends StatelessWidget {
 }
 
 class _UnreadNavigationIcon extends StatelessWidget {
-  const _UnreadNavigationIcon({
-    required this.count,
-    required this.icon,
-  });
+  const _UnreadNavigationIcon({required this.count, required this.icon});
 
   final int count;
   final IconData icon;
@@ -776,10 +784,7 @@ class _UnreadNavigationIcon extends StatelessWidget {
     final base = Icon(icon);
     if (count <= 0) return base;
 
-    return Badge(
-      label: Text(count > 99 ? '99+' : '$count'),
-      child: base,
-    );
+    return Badge(label: Text(count > 99 ? '99+' : '$count'), child: base);
   }
 }
 
@@ -790,10 +795,12 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final data = MobileDataScope.of(context);
     final workspace = data.selectedWorkspace;
-    final textChannels =
-        data.inbox.channels.where((channel) => !channel.isVoice).toList();
-    final voiceChannels =
-        data.inbox.channels.where((channel) => channel.isVoice).toList();
+    final textChannels = data.inbox.channels
+        .where((channel) => !channel.isVoice)
+        .toList();
+    final voiceChannels = data.inbox.channels
+        .where((channel) => channel.isVoice)
+        .toList();
 
     if (data.loading &&
         data.workspaces.isEmpty &&
@@ -820,10 +827,7 @@ class HomeScreen extends StatelessWidget {
                   workspace == null
                       ? 'Choose or create a workspace'
                       : '${workspace.role} • @${workspace.slug}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.white54,
-                  ),
+                  style: const TextStyle(fontSize: 12, color: Colors.white54),
                 ),
               ],
             ),
@@ -866,13 +870,10 @@ class HomeScreen extends StatelessWidget {
               ),
             ],
           ),
-          if (data.offline ||
-              data.realtimeState != MobileRealtimeState.ready)
+          if (data.offline || data.realtimeState != MobileRealtimeState.ready)
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              sliver: SliverToBoxAdapter(
-                child: _ConnectionBanner(data: data),
-              ),
+              sliver: SliverToBoxAdapter(child: _ConnectionBanner(data: data)),
             ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -883,9 +884,7 @@ class HomeScreen extends StatelessWidget {
           if (workspace == null)
             const SliverPadding(
               padding: EdgeInsets.fromLTRB(16, 20, 16, 24),
-              sliver: SliverToBoxAdapter(
-                child: _NoWorkspaceState(),
-              ),
+              sliver: SliverToBoxAdapter(child: _NoWorkspaceState()),
             )
           else ...[
             const SliverPadding(
@@ -914,9 +913,7 @@ class HomeScreen extends StatelessWidget {
               ),
             const SliverPadding(
               padding: EdgeInsets.fromLTRB(18, 22, 18, 8),
-              sliver: SliverToBoxAdapter(
-                child: _SectionTitle(title: 'Voice'),
-              ),
+              sliver: SliverToBoxAdapter(child: _SectionTitle(title: 'Voice')),
             ),
             if (voiceChannels.isEmpty)
               const SliverPadding(
@@ -957,21 +954,26 @@ class MessagesScreen extends StatelessWidget {
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
-          const SliverAppBar(
+          SliverAppBar(
             floating: true,
-            backgroundColor: Color(0xFF071015),
-            title: Text(
+            backgroundColor: const Color(0xFF071015),
+            title: const Text(
               'Messages',
               style: TextStyle(fontWeight: FontWeight.w800),
             ),
+            actions: [
+              IconButton(
+                tooltip: 'Saved messages',
+                onPressed: () => context.push('/saved'),
+                icon: const Icon(Icons.bookmark_outline_rounded),
+              ),
+              const SizedBox(width: 4),
+            ],
           ),
-          if (data.offline ||
-              data.realtimeState != MobileRealtimeState.ready)
+          if (data.offline || data.realtimeState != MobileRealtimeState.ready)
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              sliver: SliverToBoxAdapter(
-                child: _ConnectionBanner(data: data),
-              ),
+              sliver: SliverToBoxAdapter(child: _ConnectionBanner(data: data)),
             ),
           if (conversations.isEmpty)
             const SliverFillRemaining(
@@ -989,9 +991,7 @@ class MessagesScreen extends StatelessWidget {
               sliver: SliverList.builder(
                 itemCount: conversations.length,
                 itemBuilder: (context, index) {
-                  return _ConversationTile(
-                    conversation: conversations[index],
-                  );
+                  return _ConversationTile(conversation: conversations[index]);
                 },
               ),
             ),
@@ -1038,18 +1038,12 @@ class _WorkspaceOverviewCard extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             data.selectedWorkspace?.name ?? 'Your PulseMesh space',
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-            ),
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
           Text(
             copy,
-            style: const TextStyle(
-              color: Colors.white60,
-              height: 1.4,
-            ),
+            style: const TextStyle(color: Colors.white60, height: 1.4),
           ),
         ],
       ),
@@ -1087,10 +1081,7 @@ class _ConnectionBanner extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 13,
-              ),
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
             ),
           ),
         ],
@@ -1109,11 +1100,10 @@ class _ChannelTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
       child: ListTile(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
-        tileColor:
-            channel.hasUnread ? const Color(0x1468E0CF) : Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        tileColor: channel.hasUnread
+            ? const Color(0x1468E0CF)
+            : Colors.transparent,
         leading: const Icon(Icons.tag_rounded),
         title: Text(
           channel.name,
@@ -1127,9 +1117,7 @@ class _ChannelTile extends StatelessWidget {
         trailing: channel.hasUnread
             ? Badge(
                 label: Text(
-                  channel.unreadCount > 99
-                      ? '99+'
-                      : '${channel.unreadCount}',
+                  channel.unreadCount > 99 ? '99+' : '${channel.unreadCount}',
                 ),
               )
             : const Icon(Icons.chevron_right_rounded),
@@ -1154,13 +1142,8 @@ class _VoiceChannelTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
       child: ListTile(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
-        leading: const Icon(
-          Icons.graphic_eq_rounded,
-          color: Color(0xFF68E0CF),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        leading: const Icon(Icons.graphic_eq_rounded, color: Color(0xFF68E0CF)),
         title: Text(channel.name),
         subtitle: Text(channel.visibility),
         trailing: const Icon(Icons.chevron_right_rounded),
@@ -1187,9 +1170,7 @@ class _ConversationTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: ListTile(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         tileColor: conversation.hasUnread
             ? const Color(0x1468E0CF)
             : Colors.transparent,
@@ -1251,10 +1232,7 @@ class _ConversationTile extends StatelessWidget {
 }
 
 class _WorkspaceAvatar extends StatelessWidget {
-  const _WorkspaceAvatar({
-    required this.name,
-    required this.size,
-  });
+  const _WorkspaceAvatar({required this.name, required this.size});
 
   final String name;
   final double size;
@@ -1268,10 +1246,7 @@ class _WorkspaceAvatar extends StatelessWidget {
       backgroundColor: const Color(0xFF153039),
       child: Text(
         letter.toUpperCase(),
-        style: TextStyle(
-          fontWeight: FontWeight.w800,
-          fontSize: size * 0.38,
-        ),
+        style: TextStyle(fontWeight: FontWeight.w800, fontSize: size * 0.38),
       ),
     );
   }
@@ -1296,10 +1271,7 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _EmptySection extends StatelessWidget {
-  const _EmptySection({
-    required this.icon,
-    required this.message,
-  });
+  const _EmptySection({required this.icon, required this.message});
 
   final IconData icon;
   final String message;

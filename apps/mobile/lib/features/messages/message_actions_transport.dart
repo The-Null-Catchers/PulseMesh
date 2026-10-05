@@ -1,12 +1,11 @@
 import 'package:dio/dio.dart';
 
+import 'saved_message.dart';
+
 typedef MessageActionAccessTokenProvider = Future<String?> Function();
 
 abstract interface class MessageActionsTransport {
-  Future<void> editMessage({
-    required String messageId,
-    required String body,
-  });
+  Future<void> editMessage({required String messageId, required String body});
 
   Future<void> deleteMessage({
     required String messageId,
@@ -19,15 +18,13 @@ abstract interface class MessageActionsTransport {
     required bool active,
   });
 
-  Future<void> bookmarkMessage({
-    required String messageId,
-    String? note,
-  });
+  Future<void> bookmarkMessage({required String messageId, String? note});
 
-  Future<void> pinMessage({
-    required String messageId,
-    required bool active,
-  });
+  Future<List<SavedMessage>> savedMessages({int limit = 100});
+
+  Future<void> removeBookmark({required String messageId});
+
+  Future<void> pinMessage({required String messageId, required bool active});
 
   Future<void> forwardMessage({
     required String messageId,
@@ -48,16 +45,17 @@ class DioMessageActionsTransport implements MessageActionsTransport {
     required String baseUrl,
     required MessageActionAccessTokenProvider accessToken,
     Dio? dio,
-  })  : _accessToken = accessToken,
-        _dio = dio ??
-            Dio(
-              BaseOptions(
-                baseUrl: baseUrl,
-                connectTimeout: const Duration(seconds: 10),
-                receiveTimeout: const Duration(seconds: 20),
-                sendTimeout: const Duration(seconds: 20),
-              ),
-            );
+  }) : _accessToken = accessToken,
+       _dio =
+           dio ??
+           Dio(
+             BaseOptions(
+               baseUrl: baseUrl,
+               connectTimeout: const Duration(seconds: 10),
+               receiveTimeout: const Duration(seconds: 20),
+               sendTimeout: const Duration(seconds: 20),
+             ),
+           );
 
   final Dio _dio;
   final MessageActionAccessTokenProvider _accessToken;
@@ -103,6 +101,30 @@ class DioMessageActionsTransport implements MessageActionsTransport {
     await _dio.put<void>(
       '/messages/$messageId/bookmark',
       data: {'note': note},
+      options: await _options(),
+    );
+  }
+
+  @override
+  Future<List<SavedMessage>> savedMessages({int limit = 100}) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/bookmarks',
+      queryParameters: {'limit': limit},
+      options: await _options(),
+    );
+    final items = response.data?['items'] as List<dynamic>? ?? const [];
+    return items
+        .map(
+          (item) =>
+              SavedMessage.fromJson(Map<String, dynamic>.from(item as Map)),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> removeBookmark({required String messageId}) async {
+    await _dio.delete<void>(
+      '/messages/$messageId/bookmark',
       options: await _options(),
     );
   }
@@ -177,4 +199,3 @@ class DioMessageActionsTransport implements MessageActionsTransport {
     }
   }
 }
-
