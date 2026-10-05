@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import 'auth_models.dart';
 import 'auth_session_store.dart';
 import 'auth_transport.dart';
@@ -10,12 +12,21 @@ enum AuthSessionState {
   authenticated,
 }
 
-class AuthSessionController {
+class AuthSessionController extends ChangeNotifier {
   AuthSessionController({
     required AuthTransport transport,
     required AuthSessionStore store,
   })  : _transport = transport,
-        _store = store;
+        _store = store {
+    _active = this;
+  }
+
+  static AuthSessionController? _active;
+
+  /// The active mobile auth controller. PulseMesh has a single authenticated
+  /// mobile root, so profile/account surfaces can perform lifecycle actions
+  /// without threading callbacks through the global router.
+  static AuthSessionController? get active => _active;
 
   final AuthTransport _transport;
   final AuthSessionStore _store;
@@ -48,11 +59,13 @@ class AuthSessionController {
 
   Future<bool> restore() async {
     _state = AuthSessionState.restoring;
+    notifyListeners();
     final refreshToken = await _store.readRefreshToken();
 
     if (refreshToken == null || refreshToken.isEmpty) {
       _accessToken = null;
       _state = AuthSessionState.signedOut;
+      notifyListeners();
       return false;
     }
 
@@ -67,10 +80,12 @@ class AuthSessionController {
       if (error.isUnauthorized) {
         await _store.clearRefreshToken();
       }
+      notifyListeners();
       rethrow;
     } catch (_) {
       _accessToken = null;
       _state = AuthSessionState.signedOut;
+      notifyListeners();
       rethrow;
     }
   }
@@ -90,6 +105,7 @@ class AuthSessionController {
     if (refreshToken == null || refreshToken.isEmpty) {
       _accessToken = null;
       _state = AuthSessionState.signedOut;
+      notifyListeners();
       throw const AuthTransportException(
         statusCode: 401,
         code: 'INVALID_REFRESH_TOKEN',
@@ -105,6 +121,7 @@ class AuthSessionController {
         _accessToken = null;
         _state = AuthSessionState.signedOut;
         await _store.clearRefreshToken();
+        notifyListeners();
       }
       rethrow;
     }
@@ -121,6 +138,7 @@ class AuthSessionController {
       _accessToken = null;
       _state = AuthSessionState.signedOut;
       await _store.clearRefreshToken();
+      notifyListeners();
     }
   }
 
@@ -131,5 +149,12 @@ class AuthSessionController {
     await _store.writeRefreshToken(tokens.refreshToken);
     _accessToken = tokens.accessToken;
     _state = AuthSessionState.authenticated;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    if (identical(_active, this)) _active = null;
+    super.dispose();
   }
 }
