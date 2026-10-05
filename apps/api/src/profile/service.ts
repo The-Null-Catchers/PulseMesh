@@ -28,12 +28,12 @@ type UserProfileRow = {
 };
 
 export type UpdateUserProfileInput = {
-  username?: string;
-  displayName?: string;
-  avatarUrl?: string | null;
-  bio?: string | null;
-  timezone?: string;
-  statusText?: string | null;
+  username?: string | undefined;
+  displayName?: string | undefined;
+  avatarUrl?: string | null | undefined;
+  bio?: string | null | undefined;
+  timezone?: string | undefined;
+  statusText?: string | null | undefined;
 };
 
 const profileColumns = `
