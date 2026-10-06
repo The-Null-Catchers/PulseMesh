@@ -24,6 +24,7 @@ class _SearchScreenState extends State<SearchScreen> {
   SearchResults? _results;
   Object? _error;
   bool _loading = false;
+  String? _openingUserId;
   int _requestSerial = 0;
 
   @override
@@ -70,6 +71,42 @@ class _SearchScreenState extends State<SearchScreen> {
         _error = error;
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _openDirectMessage(SearchUserResult user) async {
+    if (_openingUserId != null) return;
+
+    final data = MobileDataScope.of(context);
+    setState(() => _openingUserId = user.id);
+    final name = user.displayName.trim().isNotEmpty
+        ? user.displayName.trim()
+        : '@${user.username}';
+
+    try {
+      final conversationId = await widget.transport.startDirectConversation(
+        user.id,
+      );
+
+      try {
+        await data.refreshInbox();
+      } catch (_) {
+        // The conversation can still be opened directly if refreshing the
+        // sidebar snapshot fails because of a temporary network issue.
+      }
+
+      if (!mounted) return;
+      context.push(
+        '/room/conversation/$conversationId',
+        extra: RoomScreenArgs(title: name),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open direct message: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _openingUserId = null);
     }
   }
 
@@ -220,6 +257,7 @@ class _SearchScreenState extends State<SearchScreen> {
         ? user.displayName.trim()
         : '@${user.username}';
     final letter = name.isEmpty ? '?' : name.characters.first.toUpperCase();
+    final opening = _openingUserId == user.id;
 
     return ListTile(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -229,6 +267,15 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
       title: Text(name),
       subtitle: Text('@${user.username}'),
+      trailing: opening
+          ? const SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.chat_bubble_outline_rounded),
+      onTap: _openingUserId == null
+          ? () => unawaited(_openDirectMessage(user))
+          : null,
     );
   }
 
@@ -342,8 +389,8 @@ class _SectionHeader extends StatelessWidget {
       final title = customName != null && customName.isNotEmpty
           ? customName
           : conversation.kind == 'group'
-              ? 'Group conversation'
-              : 'Direct message';
+          ? 'Group conversation'
+          : 'Direct message';
       return (
         label: title,
         title: title,

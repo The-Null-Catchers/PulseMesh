@@ -39,7 +39,7 @@ export async function searchRoutes(app: FastifyInstance): Promise<void> {
     );
 
     const users = await pool.query(
-      "SELECT DISTINCT u.id,u.username,u.display_name,u.avatar_url FROM users u JOIN workspace_members target ON target.user_id=u.id JOIN workspace_members mine ON mine.workspace_id=target.workspace_id AND mine.user_id=$1 WHERE u.username ILIKE $2 OR u.display_name ILIKE $2 ORDER BY u.display_name LIMIT 10",
+      "SELECT DISTINCT u.id,u.username,u.display_name,u.avatar_url FROM users u JOIN workspace_members target ON target.user_id=u.id JOIN workspace_members mine ON mine.workspace_id=target.workspace_id AND mine.user_id=$1 WHERE u.id<>$1 AND (u.username ILIKE $2 OR u.display_name ILIKE $2) ORDER BY u.display_name LIMIT 10",
       [userId, "%" + query.q + "%"],
     );
 
