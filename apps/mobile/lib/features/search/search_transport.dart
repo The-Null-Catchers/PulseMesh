@@ -6,6 +6,8 @@ typedef SearchAccessTokenProvider = Future<String?> Function();
 
 abstract interface class SearchTransport {
   Future<SearchResults> search(String query, {int limit = 20});
+
+  Future<String> startDirectConversation(String userId);
 }
 
 class DioSearchTransport implements SearchTransport {
@@ -37,6 +39,24 @@ class DioSearchTransport implements SearchTransport {
     );
 
     return SearchResults.fromJson(response.data ?? const {});
+  }
+
+  @override
+  Future<String> startDirectConversation(String userId) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/conversations',
+      data: <String, dynamic>{
+        'kind': 'direct',
+        'memberIds': <String>[userId],
+      },
+      options: await _options(),
+    );
+
+    final id = response.data?['id'];
+    if (id is! String || id.isEmpty) {
+      throw StateError('Conversation response did not include an id');
+    }
+    return id;
   }
 
   Future<Options> _options() async {
