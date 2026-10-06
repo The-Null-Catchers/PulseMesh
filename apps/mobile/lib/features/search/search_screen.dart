@@ -77,6 +77,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _openDirectMessage(SearchUserResult user) async {
     if (_openingUserId != null) return;
 
+    final data = MobileDataScope.of(context);
     setState(() => _openingUserId = user.id);
     final name = user.displayName.trim().isNotEmpty
         ? user.displayName.trim()
@@ -88,7 +89,7 @@ class _SearchScreenState extends State<SearchScreen> {
       );
 
       try {
-        await MobileDataScope.of(context).refreshInbox();
+        await data.refreshInbox();
       } catch (_) {
         // The conversation can still be opened directly if refreshing the
         // sidebar snapshot fails because of a temporary network issue.
