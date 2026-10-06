@@ -26,6 +26,7 @@ import 'features/profile/profile_screen.dart';
 import 'features/profile/profile_transport.dart';
 import 'features/search/search_screen.dart';
 import 'features/search/search_transport.dart';
+import 'features/workspaces/workspace_presence_messages_screen.dart';
 import 'offline/models.dart';
 import 'theme/app_theme.dart';
 
@@ -107,7 +108,10 @@ final router = GoRouter(
       builder: (context, state, child) => AppShell(child: child),
       routes: [
         GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
-        GoRoute(path: '/messages', builder: (_, _) => const MessagesScreen()),
+        GoRoute(
+          path: '/messages',
+          builder: (_, _) => const WorkspacePresenceMessagesScreen(),
+        ),
         GoRoute(
           path: '/activity',
           builder: (_, _) => const CallActivityScreen(),
