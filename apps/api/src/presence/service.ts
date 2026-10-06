@@ -149,19 +149,22 @@ export async function updatePresenceSettings(input: {
 }
 
 export async function broadcastPresence(userId: string): Promise<void> {
-  const [snapshot, memberships] = await Promise.all([
+  const [snapshot, recipients] = await Promise.all([
     currentPresence(userId),
-    pool.query<{ workspace_id: string }>(
-      "SELECT workspace_id FROM workspace_members WHERE user_id=$1",
+    pool.query<{ user_id: string }>(
+      `SELECT DISTINCT peer.user_id
+       FROM workspace_members mine
+       JOIN workspace_members peer ON peer.workspace_id=mine.workspace_id
+       WHERE mine.user_id=$1`,
       [userId],
     ),
   ]);
 
-  for (const membership of memberships.rows) {
+  for (const recipient of recipients.rows) {
     const event: RealtimeEvent = {
       id: randomUUID(),
       type: "presence.updated",
-      room: "workspace:" + membership.workspace_id,
+      room: "user:" + recipient.user_id,
       occurredAt: new Date().toISOString(),
       payload: snapshot,
     };

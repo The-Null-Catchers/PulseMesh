@@ -12,6 +12,7 @@ import 'package:pulsemesh/features/inbox/mobile_data_scope.dart';
 import 'package:pulsemesh/features/messages/message_actions_transport.dart';
 import 'package:pulsemesh/features/messages/saved_message.dart';
 import 'package:pulsemesh/features/workspaces/workspace_models.dart';
+import 'package:pulsemesh/features/workspaces/workspace_presence.dart';
 import 'package:pulsemesh/features/workspaces/workspace_transport.dart';
 import 'package:pulsemesh/main.dart';
 import 'package:pulsemesh/offline/local_store.dart';
@@ -21,6 +22,10 @@ import 'package:pulsemesh/offline/sync_transport.dart';
 class EmptyWorkspaceTransport implements WorkspaceTransport {
   @override
   Future<List<WorkspaceSummary>> listWorkspaces() async => const [];
+
+  @override
+  Future<List<WorkspacePresenceMember>> listPresence(String workspaceId) async =>
+      const [];
 }
 
 class EmptyInboxTransport implements InboxTransport {
