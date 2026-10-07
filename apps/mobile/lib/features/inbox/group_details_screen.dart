@@ -29,7 +29,9 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
   late String _name;
   late List<ConversationMemberSummary> _members;
   bool _busy = false;
+  bool _loadingDetails = true;
   bool _loadingWorkspaceMembers = true;
+  Object? _detailsError;
   Object? _workspaceError;
   List<WorkspacePresenceMember> _workspaceMembers = const [];
 
@@ -50,7 +52,27 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
         ? widget.conversation.name!.trim()
         : 'Group conversation';
     _members = [...widget.conversation.members];
+    _loadGroupDetails();
     _loadWorkspaceMembers();
+  }
+
+  Future<void> _loadGroupDetails() async {
+    try {
+      final details = await widget.groupTransport.groupDetails(widget.conversation.id);
+      if (!mounted) return;
+      setState(() {
+        _name = details.name?.trim().isNotEmpty == true
+            ? details.name!.trim()
+            : _name;
+        _members = [...details.members];
+        _detailsError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _detailsError = error);
+    } finally {
+      if (mounted) setState(() => _loadingDetails = false);
+    }
   }
 
   Future<void> _loadWorkspaceMembers() async {
@@ -172,19 +194,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
         conversationId: widget.conversation.id,
         userId: selected.userId,
       );
-      if (!mounted) return;
-      setState(() {
-        _members = [
-          ..._members,
-          ConversationMemberSummary(
-            id: selected.userId,
-            username: selected.username,
-            displayName: selected.displayName,
-            avatarUrl: selected.avatarUrl,
-            role: 'member',
-          ),
-        ];
-      });
+      await _loadGroupDetails();
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -240,9 +250,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
         Navigator.of(context).pop(true);
         return;
       }
-      setState(() {
-        _members = _members.where((item) => item.id != member.id).toList();
-      });
+      await _loadGroupDetails();
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -265,22 +273,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
         memberId: member.id,
         role: nextRole,
       );
-      if (!mounted) return;
-      setState(() {
-        _members = _members
-            .map(
-              (item) => item.id == member.id
-                  ? ConversationMemberSummary(
-                      id: item.id,
-                      username: item.username,
-                      displayName: item.displayName,
-                      avatarUrl: item.avatarUrl,
-                      role: nextRole,
-                    )
-                  : item,
-            )
-            .toList(growable: false);
-      });
+      await _loadGroupDetails();
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -298,7 +291,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
       appBar: AppBar(
         title: const Text('Group details'),
         actions: [
-          if (_busy)
+          if (_busy || _loadingDetails)
             const Padding(
               padding: EdgeInsets.only(right: 16),
               child: Center(
@@ -313,6 +306,17 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
+          if (_detailsError != null)
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.error_outline_rounded),
+                title: const Text('Could not refresh group permissions.'),
+                trailing: TextButton(
+                  onPressed: _loadGroupDetails,
+                  child: const Text('Retry'),
+                ),
+              ),
+            ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const CircleAvatar(child: Icon(Icons.groups_rounded)),
@@ -347,7 +351,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
             const Padding(
               padding: EdgeInsets.only(bottom: 8),
               child: Text(
-                'Workspace members could not be loaded. Pull back and retry later.',
+                'Workspace members could not be loaded. Retry later.',
                 style: TextStyle(color: Colors.amber),
               ),
             ),
