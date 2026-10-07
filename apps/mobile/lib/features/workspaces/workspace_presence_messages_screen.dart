@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../inbox/create_group_conversation_screen.dart';
 import '../inbox/inbox_models.dart';
 import '../inbox/inbox_realtime.dart';
+import '../inbox/inbox_transport.dart';
 import '../inbox/mobile_data_controller.dart';
 import '../inbox/mobile_data_scope.dart';
 import '../messages/message_actions_transport.dart';
@@ -112,6 +114,51 @@ class _WorkspacePresenceMessagesScreenState
     }
   }
 
+  Future<void> _openCreateGroup() async {
+    final data = _data;
+    final workspaceId = data?.selectedWorkspaceId;
+    final workspaceTransport = _transport;
+    final actions = SavedMessagesTransportScope.of(context);
+
+    if (data == null || workspaceId == null || workspaceTransport == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a workspace first.')),
+      );
+      return;
+    }
+    if (actions is! DioMessageActionsTransport) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Group creation is unavailable.')),
+      );
+      return;
+    }
+
+    final created = await Navigator.of(context).push<CreatedConversation>(
+      MaterialPageRoute(
+        builder: (_) => CreateGroupConversationScreen(
+          workspaceId: workspaceId,
+          currentUserId: data.currentUserId,
+          workspaceTransport: workspaceTransport,
+          inboxTransport: DioInboxTransport(
+            baseUrl: actions.baseUrl,
+            accessToken: actions.accessTokenProvider,
+          ),
+        ),
+      ),
+    );
+    if (!mounted || created == null || created.id.isEmpty) return;
+
+    await data.refresh();
+    if (!mounted) return;
+    final title = created.name?.trim().isNotEmpty == true
+        ? created.name!.trim()
+        : 'Group conversation';
+    context.push(
+      '/room/conversation/${created.id}',
+      extra: RoomScreenArgs(title: title, encrypted: false),
+    );
+  }
+
   @override
   void dispose() {
     _events?.cancel();
@@ -146,6 +193,11 @@ class _WorkspacePresenceMessagesScreenState
                     ),
                   ),
                 ),
+              IconButton(
+                tooltip: 'New group',
+                onPressed: _openCreateGroup,
+                icon: const Icon(Icons.group_add_outlined),
+              ),
               IconButton(
                 tooltip: 'Search PulseMesh',
                 onPressed: () => context.push('/search'),
