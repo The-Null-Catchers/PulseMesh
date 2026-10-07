@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { pool } from "../db/index.js";
+import { pool, withTransaction } from "../db/index.js";
 import { AppError } from "../errors.js";
 import { canAccessConversation } from "../authorization/service.js";
 
@@ -234,6 +234,61 @@ export async function conversationManagementRoutes(
         "UPDATE conversations SET updated_at=now() WHERE id=$1",
         [params.conversationId],
       );
+
+      return { ok: true };
+    },
+  );
+
+  app.put(
+    "/conversations/:conversationId/owner",
+    { preHandler: app.authenticate },
+    async (request) => {
+      const params = z
+        .object({ conversationId: z.string().uuid() })
+        .parse(request.params);
+      const body = z.object({ userId: z.string().uuid() }).parse(request.body);
+      const actorId = request.auth?.userId;
+      if (!actorId) throw new Error("Missing user");
+
+      if ((await roleFor(actorId, params.conversationId)) !== "owner") {
+        throw new AppError(
+          403,
+          "CONVERSATION_OWNER_REQUIRED",
+          "Only the owner can transfer group ownership",
+        );
+      }
+
+      if (body.userId === actorId) {
+        throw new AppError(
+          400,
+          "OWNER_TRANSFER_TARGET_INVALID",
+          "Choose another group member as the new owner",
+        );
+      }
+
+      const targetRole = await roleFor(body.userId, params.conversationId);
+      if (!targetRole) {
+        throw new AppError(
+          404,
+          "MEMBER_NOT_FOUND",
+          "New owner must already be a group member",
+        );
+      }
+
+      await withTransaction(async (client) => {
+        await client.query(
+          "UPDATE conversation_members SET role='member' WHERE conversation_id=$1 AND user_id=$2 AND role='owner'",
+          [params.conversationId, actorId],
+        );
+        await client.query(
+          "UPDATE conversation_members SET role='owner' WHERE conversation_id=$1 AND user_id=$2",
+          [params.conversationId, body.userId],
+        );
+        await client.query(
+          "UPDATE conversations SET owner_user_id=$1,updated_at=now() WHERE id=$2 AND kind='group'",
+          [body.userId, params.conversationId],
+        );
+      });
 
       return { ok: true };
     },
