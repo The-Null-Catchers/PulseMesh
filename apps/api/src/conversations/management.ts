@@ -81,7 +81,11 @@ export async function conversationManagementRoutes(
       );
 
       if (!result.rowCount) {
-        throw new AppError(404, "GROUP_NOT_FOUND", "Group conversation not found");
+        throw new AppError(
+          404,
+          "GROUP_NOT_FOUND",
+          "Group conversation not found",
+        );
       }
 
       return result.rows[0];
