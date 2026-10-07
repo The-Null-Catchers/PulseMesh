@@ -1,8 +1,11 @@
 import 'package:dio/dio.dart';
 
+import 'inbox_models.dart';
+
 typedef GroupAccessTokenProvider = Future<String?> Function();
 
 abstract interface class GroupManagementTransport {
+  Future<ConversationSummary> groupDetails(String conversationId);
   Future<void> renameGroup({required String conversationId, required String name});
   Future<void> addMember({required String conversationId, required String userId});
   Future<void> removeMember({required String conversationId, required String memberId});
@@ -39,6 +42,15 @@ class DioGroupManagementTransport implements GroupManagementTransport {
           ? const <String, String>{}
           : {'Authorization': 'Bearer $token'},
     );
+  }
+
+  @override
+  Future<ConversationSummary> groupDetails(String conversationId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/conversations/$conversationId/details',
+      options: await _options(),
+    );
+    return ConversationSummary.fromJson(response.data ?? const {});
   }
 
   @override
