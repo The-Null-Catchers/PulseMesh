@@ -36,7 +36,7 @@ class ConversationMemberSummary {
     required this.username,
     required this.displayName,
     required this.avatarUrl,
-    required this.role,
+    this.role = 'member',
   });
 
   final String id;
