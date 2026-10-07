@@ -33,6 +33,65 @@ async function assertAdmin(
 export async function conversationManagementRoutes(
   app: FastifyInstance,
 ): Promise<void> {
+  app.get(
+    "/conversations/:conversationId/details",
+    { preHandler: app.authenticate },
+    async (request) => {
+      const params = z
+        .object({ conversationId: z.string().uuid() })
+        .parse(request.params);
+      const userId = request.auth?.userId;
+      if (!userId) throw new Error("Missing user");
+
+      if (!(await canAccessConversation(userId, params.conversationId))) {
+        throw new AppError(
+          403,
+          "CONVERSATION_ACCESS_DENIED",
+          "Conversation access denied",
+        );
+      }
+
+      const result = await pool.query(
+        `SELECT
+           c.id,
+           c.kind,
+           c.name,
+           c.avatar_url,
+           COALESCE(
+             json_agg(
+               json_build_object(
+                 'id',u.id,
+                 'username',u.username,
+                 'displayName',u.display_name,
+                 'avatarUrl',u.avatar_url,
+                 'role',cm.role
+               ) ORDER BY
+                 CASE cm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,
+                 u.display_name,
+                 u.username
+             ) FILTER (WHERE u.id IS NOT NULL),
+             '[]'::json
+           ) AS members
+         FROM conversations c
+         LEFT JOIN conversation_members cm ON cm.conversation_id=c.id
+         LEFT JOIN users u ON u.id=cm.user_id
+         WHERE c.id=$1 AND c.kind='group'
+         GROUP BY c.id`,
+        [params.conversationId],
+      );
+
+      if (!result.rowCount) {
+        throw new AppError(
+          404,
+          "GROUP_NOT_FOUND",
+          "Group conversation not found",
+        );
+      }
+
+      return result.rows[0];
+    },
+  );
+
   app.patch(
     "/conversations/:conversationId",
     { preHandler: app.authenticate },
@@ -96,6 +155,24 @@ export async function conversationManagementRoutes(
           400,
           "GROUP_REQUIRED",
           "Members can only be added to groups",
+        );
+      }
+
+      const sharedWorkspace = await pool.query(
+        `SELECT 1
+         FROM workspace_members actor
+         JOIN workspace_members target
+           ON target.workspace_id=actor.workspace_id
+         WHERE actor.user_id=$1 AND target.user_id=$2
+         LIMIT 1`,
+        [actorId, body.userId],
+      );
+
+      if (!sharedWorkspace.rowCount) {
+        throw new AppError(
+          403,
+          "CONVERSATION_MEMBER_NOT_SHARED",
+          "Conversation members must share at least one workspace with you",
         );
       }
 
