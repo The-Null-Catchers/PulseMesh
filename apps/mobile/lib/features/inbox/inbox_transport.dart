@@ -4,10 +4,35 @@ import 'inbox_models.dart';
 
 typedef InboxAccessTokenProvider = Future<String?> Function();
 
+class CreatedConversation {
+  const CreatedConversation({
+    required this.id,
+    required this.kind,
+    required this.name,
+  });
+
+  final String id;
+  final String kind;
+  final String? name;
+
+  factory CreatedConversation.fromJson(Map<String, dynamic> json) {
+    return CreatedConversation(
+      id: json['id'] as String? ?? '',
+      kind: json['kind'] as String? ?? 'group',
+      name: json['name'] as String?,
+    );
+  }
+}
+
 abstract interface class InboxTransport {
   Future<List<ChannelSummary>> channels(String workspaceId);
 
   Future<List<ConversationSummary>> conversations();
+
+  Future<CreatedConversation> createGroupConversation({
+    required String name,
+    required List<String> memberIds,
+  });
 
   Future<void> markChannelRead({
     required String channelId,
@@ -80,6 +105,23 @@ class DioInboxTransport implements InboxTransport {
           ),
         )
         .toList(growable: false);
+  }
+
+  @override
+  Future<CreatedConversation> createGroupConversation({
+    required String name,
+    required List<String> memberIds,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/conversations',
+      data: {
+        'kind': 'group',
+        'name': name.trim(),
+        'memberIds': memberIds,
+      },
+      options: await _options(),
+    );
+    return CreatedConversation.fromJson(response.data ?? const {});
   }
 
   @override

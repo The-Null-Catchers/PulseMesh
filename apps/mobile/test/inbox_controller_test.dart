@@ -34,6 +34,18 @@ class FakeInboxTransport implements InboxTransport {
   }
 
   @override
+  Future<CreatedConversation> createGroupConversation({
+    required String name,
+    required List<String> memberIds,
+  }) async {
+    return CreatedConversation(
+      id: 'group-1',
+      kind: 'group',
+      name: name,
+    );
+  }
+
+  @override
   Future<void> markChannelRead({
     required String channelId,
     required String lastReadMessageId,
