@@ -36,12 +36,17 @@ class ConversationMemberSummary {
     required this.username,
     required this.displayName,
     required this.avatarUrl,
+    required this.role,
   });
 
   final String id;
   final String username;
   final String displayName;
   final String? avatarUrl;
+  final String role;
+
+  bool get isOwner => role == 'owner';
+  bool get isAdmin => role == 'owner' || role == 'admin';
 
   factory ConversationMemberSummary.fromJson(Map<String, dynamic> json) {
     return ConversationMemberSummary(
@@ -49,6 +54,7 @@ class ConversationMemberSummary {
       username: json['username'] as String? ?? '',
       displayName: json['displayName'] as String? ?? '',
       avatarUrl: json['avatarUrl'] as String?,
+      role: json['role'] as String? ?? 'member',
     );
   }
 }
