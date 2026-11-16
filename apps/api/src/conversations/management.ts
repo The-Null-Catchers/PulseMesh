@@ -3,6 +3,7 @@ import { z } from "zod";
 import { pool, withTransaction } from "../db/index.js";
 import { AppError } from "../errors.js";
 import { canAccessConversation } from "../authorization/service.js";
+import { transferGroupOwnership } from "./ownership.js";
 
 async function roleFor(
   userId: string,
@@ -225,10 +226,17 @@ export async function conversationManagementRoutes(
         );
       }
 
-      await pool.query(
-        "DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2",
+      const removed = await pool.query(
+        "DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2 AND role<>'owner' RETURNING user_id",
         [params.conversationId, params.memberId],
       );
+      if (!removed.rowCount) {
+        throw new AppError(
+          409,
+          "MEMBER_NOT_REMOVABLE",
+          "Member no longer exists or is now the owner",
+        );
+      }
 
       await pool.query(
         "UPDATE conversations SET updated_at=now() WHERE id=$1",
@@ -250,45 +258,14 @@ export async function conversationManagementRoutes(
       const actorId = request.auth?.userId;
       if (!actorId) throw new Error("Missing user");
 
-      if ((await roleFor(actorId, params.conversationId)) !== "owner") {
-        throw new AppError(
-          403,
-          "CONVERSATION_OWNER_REQUIRED",
-          "Only the owner can transfer group ownership",
-        );
-      }
-
-      if (body.userId === actorId) {
-        throw new AppError(
-          400,
-          "OWNER_TRANSFER_TARGET_INVALID",
-          "Choose another group member as the new owner",
-        );
-      }
-
-      const targetRole = await roleFor(body.userId, params.conversationId);
-      if (!targetRole) {
-        throw new AppError(
-          404,
-          "MEMBER_NOT_FOUND",
-          "New owner must already be a group member",
-        );
-      }
-
-      await withTransaction(async (client) => {
-        await client.query(
-          "UPDATE conversation_members SET role='member' WHERE conversation_id=$1 AND user_id=$2 AND role='owner'",
-          [params.conversationId, actorId],
-        );
-        await client.query(
-          "UPDATE conversation_members SET role='owner' WHERE conversation_id=$1 AND user_id=$2",
-          [params.conversationId, body.userId],
-        );
-        await client.query(
-          "UPDATE conversations SET owner_user_id=$1,updated_at=now() WHERE id=$2 AND kind='group'",
-          [body.userId, params.conversationId],
-        );
-      });
+      await withTransaction((client) =>
+        transferGroupOwnership(
+          client,
+          params.conversationId,
+          actorId,
+          body.userId,
+        ),
+      );
 
       return { ok: true };
     },
