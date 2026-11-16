@@ -1,0 +1,97 @@
+{
+  "repository": "The-Null-Catchers/PulseMesh",
+  "defaultBranch": "main",
+  "baseSHA": "7b3b1a453c1ae6a9e2253ce5926f78e350d34923",
+  "backupTag": "cleanup-backup-2026-11-16",
+  "delete": [
+    {
+      "name": "feat/call-push-regression-tests",
+      "sha": "8cfa632785b819491474200f54447c57f084ba96",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/mobile-presence-settings",
+      "sha": "08215029afe39b7d52a13ad3a8d42174e5f8ee6e",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/mobile-presence-settings-2",
+      "sha": "08215029afe39b7d52a13ad3a8d42174e5f8ee6e",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/mobile-presence-settings-3",
+      "sha": "08215029afe39b7d52a13ad3a8d42174e5f8ee6e",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/mobile-presence-settings-final",
+      "sha": "08215029afe39b7d52a13ad3a8d42174e5f8ee6e",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/realtime-presence",
+      "sha": "cc3b9a22497f20b8d1e9147374467a9ebfe88733",
+      "reason": "ancestor"
+    },
+    {
+      "name": "test/call-push-payloads",
+      "sha": "8cfa632785b819491474200f54447c57f084ba96",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/call-notification-action-routing",
+      "sha": "5787b1d5b4965174a3a9ed1e15917d91db8491b0",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/call-notification-background-registration",
+      "sha": "a219bf1d180aeb4e7a0508dc063bce2b3fab27e7",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/mobile-saved-search",
+      "sha": "739884990a9a2b1ace5546f2bc95ab34d5db4157",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/phase-6-video-screen-share",
+      "sha": "c8825b7e62dfbcf4a6649609b11589820dd22d4b",
+      "reason": "equivalent"
+    },
+    {
+      "name": "fix/conversation-member-authorization",
+      "sha": "1ceb578ba6266904bc5bebfa9f5896e898e055e0",
+      "reason": "equivalent"
+    },
+    {
+      "name": "fix/web-session-refresh",
+      "sha": "89bd79968fb1d50d078f5fa1fe71f2b94e20f12c",
+      "reason": "equivalent"
+    },
+    {
+      "name": "perf/unread-indexes",
+      "sha": "e97444cec01f5f7dd4fdd66b352870fcdeba00b8",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/group-ownership-transfer",
+      "sha": "3a6b2997f0a3b85d7208021f6c58b59718929ba9",
+      "reason": "tree-identical"
+    }
+  ],
+  "status": "Explicitly approved: archive before lease-guarded deletion",
+  "archiveParents": [
+    "8cfa632785b819491474200f54447c57f084ba96",
+    "08215029afe39b7d52a13ad3a8d42174e5f8ee6e",
+    "cc3b9a22497f20b8d1e9147374467a9ebfe88733",
+    "5787b1d5b4965174a3a9ed1e15917d91db8491b0",
+    "a219bf1d180aeb4e7a0508dc063bce2b3fab27e7",
+    "739884990a9a2b1ace5546f2bc95ab34d5db4157",
+    "c8825b7e62dfbcf4a6649609b11589820dd22d4b",
+    "1ceb578ba6266904bc5bebfa9f5896e898e055e0",
+    "89bd79968fb1d50d078f5fa1fe71f2b94e20f12c",
+    "e97444cec01f5f7dd4fdd66b352870fcdeba00b8",
+    "3a6b2997f0a3b85d7208021f6c58b59718929ba9"
+  ]
+}
