@@ -9,6 +9,10 @@ abstract interface class GroupManagementTransport {
   Future<void> renameGroup({required String conversationId, required String name});
   Future<void> addMember({required String conversationId, required String userId});
   Future<void> removeMember({required String conversationId, required String memberId});
+  Future<void> transferOwnership({
+    required String conversationId,
+    required String memberId,
+  });
   Future<void> setMemberRole({
     required String conversationId,
     required String memberId,
@@ -84,6 +88,18 @@ class DioGroupManagementTransport implements GroupManagementTransport {
   }) async {
     await _dio.delete<void>(
       '/conversations/$conversationId/members/$memberId',
+      options: await _options(),
+    );
+  }
+
+  @override
+  Future<void> transferOwnership({
+    required String conversationId,
+    required String memberId,
+  }) async {
+    await _dio.put<void>(
+      '/conversations/$conversationId/owner',
+      data: {'userId': memberId},
       options: await _options(),
     );
   }

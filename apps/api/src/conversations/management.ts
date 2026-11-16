@@ -1,8 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { pool } from "../db/index.js";
+import { pool, withTransaction } from "../db/index.js";
 import { AppError } from "../errors.js";
 import { canAccessConversation } from "../authorization/service.js";
+import { transferGroupOwnership } from "./ownership.js";
 
 async function roleFor(
   userId: string,
@@ -225,14 +226,45 @@ export async function conversationManagementRoutes(
         );
       }
 
-      await pool.query(
-        "DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2",
+      const removed = await pool.query(
+        "DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2 AND role<>'owner' RETURNING user_id",
         [params.conversationId, params.memberId],
       );
+      if (!removed.rowCount) {
+        throw new AppError(
+          409,
+          "MEMBER_NOT_REMOVABLE",
+          "Member no longer exists or is now the owner",
+        );
+      }
 
       await pool.query(
         "UPDATE conversations SET updated_at=now() WHERE id=$1",
         [params.conversationId],
+      );
+
+      return { ok: true };
+    },
+  );
+
+  app.put(
+    "/conversations/:conversationId/owner",
+    { preHandler: app.authenticate },
+    async (request) => {
+      const params = z
+        .object({ conversationId: z.string().uuid() })
+        .parse(request.params);
+      const body = z.object({ userId: z.string().uuid() }).parse(request.body);
+      const actorId = request.auth?.userId;
+      if (!actorId) throw new Error("Missing user");
+
+      await withTransaction((client) =>
+        transferGroupOwnership(
+          client,
+          params.conversationId,
+          actorId,
+          body.userId,
+        ),
       );
 
       return { ok: true };

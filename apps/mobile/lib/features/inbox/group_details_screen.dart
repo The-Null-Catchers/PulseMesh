@@ -284,6 +284,53 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
     }
   }
 
+  Future<void> _transferOwnership(ConversationMemberSummary member) async {
+    if (!_isOwner || member.isOwner || member.id == widget.currentUserId || _busy) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Transfer ownership?'),
+        content: Text(
+          '${_memberLabel(member)} will become the group owner. You will remain a regular member.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Transfer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await widget.groupTransport.transferOwnership(
+        conversationId: widget.conversation.id,
+        memberId: member.id,
+      );
+      await _loadGroupDetails();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${_memberLabel(member)} is now the group owner.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not transfer group ownership.')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final me = _me;
@@ -369,10 +416,16 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                   : PopupMenuButton<String>(
                       enabled: !_busy && (_canAdmin || isMe),
                       onSelected: (value) {
+                        if (value == 'owner') _transferOwnership(member);
                         if (value == 'role') _toggleAdmin(member);
                         if (value == 'remove') _removeMember(member);
                       },
                       itemBuilder: (_) => [
+                        if (_isOwner && !isMe)
+                          const PopupMenuItem(
+                            value: 'owner',
+                            child: Text('Transfer ownership'),
+                          ),
                         if (_isOwner && !isMe)
                           PopupMenuItem(
                             value: 'role',
