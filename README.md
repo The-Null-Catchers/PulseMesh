@@ -98,3 +98,10 @@ Read the architecture notes in `docs/` before deploying.
 8. moderation, E2EE boundary, observability and hardening — implemented
 
 Future scale work can replace the initial mesh media provider with an SFU, move PostgreSQL search behind a dedicated search engine, add encrypted group messaging, and add encrypted attachment envelopes without changing the durable module boundaries.
+
+## Reproducible Flutter toolchain
+
+CI uses Flutter 3.47.6, the SDK from the last verified successful mobile
+run. Keep checks and release builds on that same version. Upgrade the SDK in a
+separate change with analyzer/tests and Android/iOS build validation; following
+the moving `stable` channel can introduce new diagnostics without a source change.
