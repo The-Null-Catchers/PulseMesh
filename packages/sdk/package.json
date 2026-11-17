@@ -20,6 +20,6 @@
     "build": "tsc -p tsconfig.json",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"process.exit(0)\""
+    "test": "tsc -p tsconfig.json && node --test test/*.mjs"
   }
 }

@@ -23,13 +23,14 @@ export class PulseMeshClient {
 
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const token = this.accessToken?.();
+    const headers = new Headers({ "content-type": "application/json" });
+    if (token) headers.set("authorization", "Bearer " + token);
+    new Headers(init.headers).forEach((value, name) =>
+      headers.set(name, value),
+    );
     const response = await fetch(this.baseUrl + path, {
       ...init,
-      headers: {
-        "content-type": "application/json",
-        ...(token ? { authorization: "Bearer " + token } : {}),
-        ...init.headers,
-      },
+      headers,
     });
     if (!response.ok) {
       const body = (await response.json()) as ApiErrorEnvelope;
@@ -39,6 +40,7 @@ export class PulseMeshClient {
         body.error.requestId,
       );
     }
+    if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
   }
 }
