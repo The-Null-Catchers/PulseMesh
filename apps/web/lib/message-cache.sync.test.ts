@@ -104,4 +104,28 @@ describe("applyMessageSyncChanges", () => {
 
     expect(result.items.map((item) => item.id)).toEqual(["local-failed", "m2"]);
   });
+
+  it("keeps a pending send when another sender uses the same client id", () => {
+    const pending = message("local-1", "2026-09-30T11:00:00.000Z", {
+      clientMessageId: "client-1",
+      optimistic: true,
+    });
+    const other = message("server-1", "2026-09-30T11:00:01.000Z", {
+      clientMessageId: "client-1",
+      sender: { ...pending.sender, id: "user-2" },
+    });
+    const change = {
+      type: "upsert" as const,
+      messageId: other.id,
+      message: other,
+    };
+
+    const result = applyMessageSyncChanges(
+      { items: [pending], nextCursor: null },
+      [change, change],
+    );
+
+    expect(result.items.map(({ id }) => id)).toEqual(["local-1", "server-1"]);
+    expect(result.items[0]?.optimistic).toBe(true);
+  });
 });

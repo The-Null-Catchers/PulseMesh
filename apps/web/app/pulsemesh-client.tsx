@@ -339,6 +339,7 @@ function WorkspaceApp({
     setMessageActionError,
   } = useMessageActions({
     token,
+    currentUserId,
     activeMessageKey,
     channelId,
     conversationId,

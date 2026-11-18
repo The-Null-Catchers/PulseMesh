@@ -60,12 +60,28 @@ describe("message cache helpers", () => {
       nextCursor: null,
     };
 
-    const result = markOptimisticMessageFailed(current, "client-1");
+    const result = markOptimisticMessageFailed(current, "client-1", "self");
 
     expect(result?.items[0]).toMatchObject({
       clientMessageId: "client-1",
       optimistic: false,
       failed: true,
     });
+  });
+
+  it("keeps the server copy when an acknowledged retry fails late", () => {
+    const pending = {
+      ...message("client-1", "client-1", "hello"),
+      optimistic: true,
+    };
+    const current: Page<Message> = {
+      items: [message("server-1", "client-1", "hello")],
+      nextCursor: null,
+    };
+
+    expect(upsertOptimisticMessage(current, pending)).toBe(current);
+    expect(markOptimisticMessageFailed(current, "client-1", "self")).toEqual(
+      current,
+    );
   });
 });
