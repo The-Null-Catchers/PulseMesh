@@ -11,6 +11,7 @@ import type { Message, Page, UploadItem } from "../lib/types";
 
 export function useMessageActions({
   token,
+  currentUserId,
   activeMessageKey,
   channelId,
   conversationId,
@@ -21,6 +22,7 @@ export function useMessageActions({
   setThreadComposer,
 }: {
   token: string;
+  currentUserId: string | null;
   activeMessageKey: string | null;
   channelId: string | null;
   conversationId: string | null;
@@ -31,6 +33,7 @@ export function useMessageActions({
   setThreadComposer: Dispatch<SetStateAction<string>>;
 }) {
   const queryClient = useQueryClient();
+  const senderId = currentUserId ?? "self";
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editBody, setEditBody] = useState("");
   const [messageActionError, setMessageActionError] = useState<string | null>(
@@ -78,7 +81,9 @@ export function useMessageActions({
       const previous = queryClient.getQueryData<Page<Message>>(key);
 
       const existing = previous?.items.find(
-        (item) => item.clientMessageId === clientMessageId,
+        (item) =>
+          item.clientMessageId === clientMessageId &&
+          item.sender.id === senderId,
       );
       const uploadAttachments = uploads
         .filter((item) => item.fileId && attachmentIds.includes(item.fileId))
@@ -103,7 +108,7 @@ export function useMessageActions({
             : (existing?.attachments ?? []),
         optimistic: true,
         sender: {
-          id: "self",
+          id: senderId,
           username: "you",
           displayName: "You",
           avatarUrl: null,
@@ -122,7 +127,11 @@ export function useMessageActions({
         queryClient.setQueryData<Page<Message> | undefined>(
           context.key,
           (current) =>
-            markOptimisticMessageFailed(current, variables.clientMessageId),
+            markOptimisticMessageFailed(
+              current,
+              variables.clientMessageId,
+              senderId,
+            ),
         );
       }
       setUploads((current) =>

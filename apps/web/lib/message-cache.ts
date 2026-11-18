@@ -1,14 +1,33 @@
 import type { Message, Page } from "./types";
 
+function matchesClientMessage(item: Message, message: Message): boolean {
+  return (
+    message.clientMessageId !== null &&
+    item.clientMessageId === message.clientMessageId &&
+    item.sender.id === message.sender.id
+  );
+}
+
 export function upsertOptimisticMessage(
   current: Page<Message> | undefined,
   optimistic: Message,
 ): Page<Message> {
+  if (
+    current?.items.some(
+      (item) =>
+        !item.optimistic &&
+        !item.failed &&
+        matchesClientMessage(item, optimistic),
+    )
+  ) {
+    return current;
+  }
+
   return {
     items: [
       optimistic,
       ...(current?.items ?? []).filter(
-        (item) => item.clientMessageId !== optimistic.clientMessageId,
+        (item) => !matchesClientMessage(item, optimistic),
       ),
     ],
     nextCursor: current?.nextCursor ?? null,
@@ -18,13 +37,16 @@ export function upsertOptimisticMessage(
 export function markOptimisticMessageFailed(
   current: Page<Message> | undefined,
   clientMessageId: string,
+  senderId: string,
 ): Page<Message> | undefined {
   if (!current) return current;
 
   return {
     ...current,
     items: current.items.map((item) =>
-      item.clientMessageId === clientMessageId
+      item.optimistic &&
+      item.clientMessageId === clientMessageId &&
+      item.sender.id === senderId
         ? {
             ...item,
             optimistic: false,
@@ -60,8 +82,8 @@ export function applyMessageSyncChanges(
 
     const message = change.message;
     if (message.clientMessageId) {
-      const optimisticIndex = optimistic.findIndex(
-        (item) => item.clientMessageId === message.clientMessageId,
+      const optimisticIndex = optimistic.findIndex((item) =>
+        matchesClientMessage(item, message),
       );
       if (optimisticIndex >= 0) {
         optimistic.splice(optimisticIndex, 1);
