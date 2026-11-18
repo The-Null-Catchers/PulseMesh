@@ -1,44 +1,52 @@
-# PulseMesh — خطة البورتفيليو
+# PulseMesh portfolio roadmap
 
-مرجع التقييم الأساسي: 17 نوفمبر 2026. تحديث نشر الخطة داخل المستودع: 18 نوفمبر 2026.
+Baseline reviewed on November 17, 2026. Repository roadmap published on November 18, 2026.
 
-الخطة خاصة بهذا المستودع، ومستخلصة من خطة Null Catchers المشتركة. وصف «الموجود الموثق» يعكس المراجعة بتاريخها؛ تحقّق من الكود ووثائق الحالة الحالية قبل إنشاء مهمة جديدة. لا تعِد تنفيذ ميزة موجودة، ولا تعتبر وجود تعريف CI دليلًا على نجاح تشغيله.
+This roadmap applies to this repository and follows the shared Null Catchers portfolio plan. Verify the documented state against the current code and runs before starting work.
 
-**تقدير شريحة العرض الأولى:** 35–55 ساعة. التقدير تخطيطي لمطور يعرف المشروع، ويستثني انتظار حسابات المتاجر والمراجعات الخارجية وتجهيز بيئة الهدف. لا يغطي جميع بنود P2.
+**Estimated initial demo effort** 35–55 hours for a developer familiar with the project. The estimate excludes external reviews, store accounts, target environment setup, and later milestones.
 
-## الأولويات الخاصة بالمشروع
+## Project priorities
 
-**الموجود الموثق:** رسائل متينة مع realtime، journal/cursors للمصالحة، offline Flutter وملفات وإشعارات وWebRTC mesh. E2EE موصوف كحدود بروتوكول/provider، وليس دليلًا على تكامل Signal مكتمل أو تدقيق تشفير.
+**Documented state** The app supports durable realtime messaging, journal and cursor reconciliation, offline Flutter, attachments, notifications, and mesh WebRTC. The encryption protocol or provider interface does not establish a completed Signal integration or cryptography audit.
 
-**P0 — نسخة العرض:** جهز مستخدمين وغرفتين وملفًا مسموحًا؛ سجل رسائل متزامنة وoffline send ثم reconnect. اجعل واجهة sync توضح pending/failed/delivered دون تقديم WebSocket delivery على أنه قراءة بشرية مؤكدة. راجع اختبارات duplicate/out-of-order الموجودة وأضف المسار المفقود فقط.
+**P0 — Demo** Recover an offline message and sync it exactly once to a second session. Use existing duplicate and ordering tests to identify missing coverage.
 
-**P1 — اتصالات قابلة للإثبات:** اختبر مكالمة بين جهازين وعلى شبكتين مختلفتين مع TURN فعلي؛ سجل فشل الإذن أو انقطاع الشبكة ومخرجات استعادة الجلسة. قس زمن وصول الرسائل ونسبة الفقد وفق تعريف معلن وبحمل معلوم؛ اختبر منع مستخدم مزال من إعادة الاشتراك في workspace.
+**P1 — Validation and depth** Verify a call between two physical devices on separate networks with TURN. Record denied permission and disconnect recovery. Measure message delay and loss with a defined workload, and verify removed users cannot resubscribe.
 
-**P2 — لاحقًا:** SFU عند قياس حد mesh، لا قبل ذلك. قدم E2EE كجزء تجريبي حتى دمج مكتبة معروفة والتحقق من توزيع المفاتيح والأجهزة والاستعادة؛ لا تخترع تشفيرًا بديلًا.
+**P2 — Later** Consider an SFU after measuring the mesh limit. Keep E2EE experimental until a reviewed library and key, device, and recovery flows are validated.
 
-**معيار الإنجاز:** الرسالة pending تصل مرة واحدة بعد reconnect، ترتيب السجل يعاد بناؤه، عزل الغرف صحيح، ومكالمة TURN ذات دليل فعلي بدل UI فقط.
+**Acceptance criteria** Offline sends arrive once after reconnect, journal order is restored, rooms stay isolated, and TURN evidence comes from a real call.
 
-**الديمو:** رسالة offline + attachment → reconnect → الطرف الآخر يشاهدها → اتصال قصير → استعادة. **الأدلة:** [README](https://github.com/The-Null-Catchers/PulseMesh/blob/main/README.md)، [Offline Sync](https://github.com/The-Null-Catchers/PulseMesh/blob/main/docs/OFFLINE_SYNC.md)، [WebRTC](https://github.com/The-Null-Catchers/PulseMesh/blob/main/docs/WEBRTC.md).
+**Demo scenario** Send a message with an attachment offline → reconnect → verify delivery → place a short call → verify recovery. [README](https://github.com/The-Null-Catchers/PulseMesh/blob/main/README.md), [Offline Sync](https://github.com/The-Null-Catchers/PulseMesh/blob/main/docs/OFFLINE_SYNC.md), [WebRTC](https://github.com/The-Null-Catchers/PulseMesh/blob/main/docs/WEBRTC.md).
 
-## بوابة قبول نسخة البورتفيليو
+## Next milestones
 
-- [ ] يستطيع شخص آخر تشغيل المسار الرئيسي من checkout نظيف، باتباع README، دون أسرار شخصية.
-- [ ] توجد قصة واحدة مكتملة: مستخدم محدد، مشكلة محددة، ومسار بداية إلى نتيجة محفوظة.
-- [ ] ينجح اختبار للمسار الرئيسي وحالة فشل مهمة، وتُختبر حدود الصلاحيات حيث توجد حسابات متعددة.
-- [ ] توجد بيانات عرض اصطناعية معلنة، قابلة لإعادة الإنشاء؛ ولا توجد بيانات عملاء أو أسرار في اللقطات.
-- [ ] توجد 4–6 لقطات حقيقية أو العدد الملائم للأداة، وفيديو 60–120 ثانية، وروابط تعمل. تُلتقط الأدلة من إصدار معروف.
-- [ ] README يوضح المزايا الفعلية، طريقة التشغيل، الرسم المعماري، القيود، وروابط الاختبارات والديمو.
-- [ ] Case study قصيرة تشرح قرارين هندسيين، بديلًا جرى استبعاده ولماذا، وفشلًا حقيقيًا وكيف يعالجه النظام.
-- [ ] صفحة Release تسجل SHA وCI والمتطلبات والقيود. لا تُنشر أرقام أداء دون workload وعتاد وطريقة قياس.
-- [ ] حُسمت سياسة الترخيص ونسب المساهمات قبل التوزيع؛ لا نختار ترخيصًا تلقائيًا لجميع المستودعات.
+The [offline sync guide](docs/OFFLINE_SYNC.md) explains SQLite, the persisted client ID, cursors, and server acknowledgement.
 
-الديمو المستضاف مفيد وليس شرطًا لكل أداة. أدوات تنفيذ الكود وإدارة الخوادم والأسرار يمكن عرضها بفيديو وبيئة معزولة وتجربة محلية قابلة للإعادة. لا تفتح تنفيذًا عامًا غير محدود لمجرد وجود رابط بورتفيليو.
+1. [ ] Use two accounts and two rooms. Queue a message offline, close and reopen the app, and confirm it remains pending.
+2. [ ] Reconnect and check event order and message IDs. Confirm one message appears for sender and recipient and that room contents remain separate.
+3. [ ] Capture pending, acknowledged, and failed states from a known release. Record the device and explain what a server acknowledgement means.
 
-## التنفيذ والمتابعة
+## Portfolio acceptance checklist
 
-- حوّل P0 إلى مهام صغيرة، لكل منها سلوك متوقع ومعيار قبول واختبار مناسب.
-- ابدأ بتأكيد الموجود؛ عدّل هذه الخطة عندما يغلق بند بدليل مرتبط بcommit أو PR.
-- سجّل مصدر بيانات الديمو، والـSHA الذي التُقطت منه الأدلة، وحدود التجربة الفعلية.
-- راجع الفرق النهائي وانتظر نجاح الفحوص المطلوبة لنفس SHA قبل الدمج، مع احترام حماية الفرع.
-- إذا كان التعديل وثائق فقط ولا يوجد فحص ينطبق عليه، سجّل التحقق من محتواها وروابطها؛ لا تسجل اختبارات تشغيل لم تُنفّذ.
-- لا تُنشر أرقام أداء أو ادعاءات أمان أو جاهزية إنتاج بلا دليل مناسب.
+- [ ] Another person can reproduce the primary workflow from a clean checkout using the README and test credentials or fixtures.
+- [ ] The demo tells one complete story with a defined user, problem, and saved result.
+- [ ] Tests cover the main flow, an important failure, and access boundaries when multiple accounts are involved.
+- [ ] Demo data is labeled synthetic and reproducible. Review screenshots and recordings for secrets and customer data.
+- [ ] Include four to six real screenshots where appropriate, a 60–120 second recording, and working links. Identify the revision used for capture.
+- [ ] The README describes implemented capabilities, setup, architecture, limits, tests, and the demo.
+- [ ] A short case study explains two engineering decisions, a considered alternative, and how the system handles an actual failure.
+- [ ] Release evidence records the commit SHA, CI, prerequisites, and limits. Performance data includes workload, hardware, and method.
+- [ ] Licensing and contributor attribution are settled before distribution. Choose the license for each repository individually.
+
+A hosted demo is optional. Code execution, server administration, and secret management can be demonstrated through a recording and a reproducible isolated environment. Keep public demo access scoped to the activities it needs.
+
+## Implementation and follow-up
+
+- Break P0 into tasks with expected behavior, acceptance criteria, and a suitable test.
+- Verify existing functionality first. Update this plan when evidence tied to a commit or PR closes a milestone.
+- Record the fixture source, the revision used for evidence, and the tested limits.
+- Review the final diff and verify required checks for its exact SHA before merging. Follow branch protection.
+- For documentation-only changes with no applicable workflow, verify content and links and record the checks actually performed.
+- Tie performance, security, and readiness claims to supporting evidence.
