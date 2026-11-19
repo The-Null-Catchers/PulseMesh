@@ -105,6 +105,39 @@ describe("applyMessageSyncChanges", () => {
     expect(result.items.map((item) => item.id)).toEqual(["local-failed", "m2"]);
   });
 
+  it("reconciles one pending send without losing another after duplicate sync replay", () => {
+    const current: Page<Message> = {
+      items: [
+        message("local-1", "2026-09-30T11:00:00.000Z", {
+          clientMessageId: "client-1",
+          optimistic: true,
+        }),
+        message("local-2", "2026-09-30T11:01:00.000Z", {
+          clientMessageId: "client-2",
+          optimistic: true,
+        }),
+      ],
+      nextCursor: "older",
+    };
+    const acknowledged = message("server-1", "2026-09-30T11:02:00.000Z", {
+      clientMessageId: "client-1",
+    });
+    const change = {
+      type: "upsert" as const,
+      messageId: acknowledged.id,
+      message: acknowledged,
+    };
+
+    const once = applyMessageSyncChanges(current, [change]);
+    const replayed = applyMessageSyncChanges(once, [change]);
+
+    expect(replayed.items.map(({ id }) => id)).toEqual(["local-2", "server-1"]);
+    expect(replayed.items[0]?.optimistic).toBe(true);
+    expect(replayed.items[0]?.clientMessageId).toBe("client-2");
+    expect(replayed.items[1]?.optimistic).toBe(false);
+    expect(replayed.nextCursor).toBe("older");
+  });
+
   it("keeps a pending send when another sender uses the same client id", () => {
     const pending = message("local-1", "2026-09-30T11:00:00.000Z", {
       clientMessageId: "client-1",
